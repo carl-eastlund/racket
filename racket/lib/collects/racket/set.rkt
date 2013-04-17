@@ -5,12 +5,17 @@
          racket/pretty
          racket/contract/base
          racket/contract/combinator
+         racket/generic
          (only-in "private/for.rkt" prop:stream))
 
-(provide set seteq seteqv
-         set? set-eq? set-eqv? set-equal?
+(provide (rename-out [gen:gset gen:set])
+         set seteq seteqv
+         (rename-out [gset? set?]) set-eq? set-eqv? set-equal?
          set-empty? set-count
-         set-member? set-add set-remove
+         set-member? set-add set-add! set-remove set-remove!
+         set-add-supported? set-add!-supported?
+         set-remove-supported? set-remove!-supported?
+         set->stream
          set-first set-rest
          set-union set-intersect set-subtract set-symmetric-difference
          subset? proper-subset?
@@ -23,8 +28,47 @@
          set->list
          list->set list->seteq list->seteqv)
 
-(define-serializable-struct set (ht)
+(define-generics gset
+  #:defined-table set->method-flags
+  (set-count gset)
+  (set-member? gset x)
+  (set-add gset x)
+  (set-add! gset x)
+  (set-remove gset x)
+  (set-remove! gset x)
+  (set->stream gset)
+  #:defaults
+  ([list?
+    (define (set-count lst) (length lst))
+    (define (set-member? lst x) (and (member x lst) #t))
+    (define (set-add lst x) (if (member x lst) lst (cons x lst)))
+    (define (set-remove lst x) (remove* (list x) lst))
+    (define (set->stream lst) lst)]))
+
+(define (set-add-supported? s) (hash-ref (set->method-flags s) 'set-add))
+(define (set-add!-supported? s) (hash-ref (set->method-flags s) 'set-add!))
+(define (set-remove-supported? s) (hash-ref (set->method-flags s) 'set-remove))
+(define (set-remove!-supported? s) (hash-ref (set->method-flags s) 'set-remove!))
+
+(define-serializable-struct hash-set (ht)
   #:omit-define-syntaxes
+  #:methods gen:gset
+  [
+   (define (set-count set)
+     (unless (gset? set) (raise-argument-error 'set-count "set?" 0 set))
+     (hash-count (hash-set-ht set)))
+   (define (set-member? set v)
+     (unless (gset? set) (raise-argument-error 'set-member? "set?" 0 set v))
+     (hash-ref (hash-set-ht set) v #f))
+   (define (set-add set v)
+     (unless (gset? set) (raise-argument-error 'set-add "set?" 0 set v))
+     (make-hash-set (hash-set (hash-set-ht set) v #t)))
+   (define (set-remove set v)
+     (unless (gset? set) (raise-argument-error 'set-remove "set?" 0 set v))
+     (make-hash-set (hash-remove (hash-set-ht set) v)))
+   (define (set->stream set)
+     (sequence->stream (in-hash-keys (hash-set-ht set))))
+   ]
   #:property prop:custom-print-quotable 'never
   #:property prop:custom-write
   (lambda (s port mode)
@@ -84,9 +128,9 @@
      [else (print-one-line port)]))
   #:property prop:equal+hash (list 
                               (lambda (set1 set2 =?)
-                                (=? (set-ht set1) (set-ht set2)))
-                              (lambda (set hc) (add1 (hc (set-ht set))))
-                              (lambda (set hc) (add1 (hc (set-ht set)))))
+                                (=? (hash-set-ht set1) (hash-set-ht set2)))
+                              (lambda (set hc) (add1 (hc (hash-set-ht set))))
+                              (lambda (set hc) (add1 (hc (hash-set-ht set)))))
   #:property prop:sequence (lambda (v) (*in-set v))
   #:property prop:stream (vector (lambda (s) (set-empty? s))
                                  (lambda (s) (set-first s))
@@ -100,7 +144,7 @@
             (set-eqv? s))
     (raise-argument-error 'chaperone-set "(and/c set? set-equal?)" s))
   (chaperone-struct s
-                    set-ht
+                    hash-set-ht
                     (let ([cached-ht #f])
                       (λ (st ht)
                         (if cached-ht cached-ht
@@ -115,43 +159,27 @@
                               new-ht))))))
 
 (define (set . elems)
-  (make-set (make-immutable-hash (map (lambda (k) (cons k #t)) elems))))
+  (make-hash-set (make-immutable-hash (map (lambda (k) (cons k #t)) elems))))
 (define (seteq . elems)
-  (make-set (make-immutable-hasheq (map (lambda (k) (cons k #t)) elems))))
+  (make-hash-set (make-immutable-hasheq (map (lambda (k) (cons k #t)) elems))))
 (define (seteqv . elems)
-  (make-set (make-immutable-hasheqv (map (lambda (k) (cons k #t)) elems))))
+  (make-hash-set (make-immutable-hasheqv (map (lambda (k) (cons k #t)) elems))))
 
 (define (set-eq? set)
-  (unless (set? set) (raise-argument-error 'set-eq? "set?" 0 set))
-  (hash-eq? (set-ht set)))
+  (unless (gset? set) (raise-argument-error 'set-eq? "set?" 0 set))
+  (hash-eq? (hash-set-ht set)))
 (define (set-eqv? set)
-  (unless (set? set) (raise-argument-error 'set-eqv? "set?" 0 set))
-  (hash-eqv? (set-ht set)))
+  (unless (gset? set) (raise-argument-error 'set-eqv? "set?" 0 set))
+  (hash-eqv? (hash-set-ht set)))
 (define (set-equal? set)
-  (unless (set? set) (raise-argument-error 'set-equal? "set?" 0 set))
-  (let* ([ht (set-ht set)])
+  (unless (gset? set) (raise-argument-error 'set-equal? "set?" 0 set))
+  (let* ([ht (hash-set-ht set)])
     (not (or (hash-eq? ht)
              (hash-eqv? ht)))))
 
 (define (set-empty? set)
-  (unless (set? set) (raise-argument-error 'set-empty? "set?" 0 set))
-  (zero? (hash-count (set-ht set))))
-
-(define (set-count set)
-  (unless (set? set) (raise-argument-error 'set-count "set?" 0 set))
-  (hash-count (set-ht set)))
-
-(define (set-member? set v)
-  (unless (set? set) (raise-argument-error 'set-member? "set?" 0 set v))
-  (hash-ref (set-ht set) v #f))
-
-(define (set-add set v)
-  (unless (set? set) (raise-argument-error 'set-add "set?" 0 set v))
-  (make-set (hash-set (set-ht set) v #t)))
-
-(define (set-remove set v)
-  (unless (set? set) (raise-argument-error 'set-remove "set?" 0 set v))
-  (make-set (hash-remove (set-ht set) v)))
+  (unless (gset? set) (raise-argument-error 'set-empty? "set?" 0 set))
+  (zero? (hash-count (hash-set-ht set))))
 
 (define (check-same-equiv who set set2 ht ht2)
   (unless (and (eq? (hash-eq? ht) (hash-eq? ht2))
@@ -170,25 +198,25 @@
    ;; (set-union (set-eqv))
    ;; [() (set)]
    [(set) 
-    (unless (set? set) (raise-argument-error 'set-union "set?" 0 set))
+    (unless (gset? set) (raise-argument-error 'set-union "set?" 0 set))
     set]
    [(set set2)
-    (unless (set? set) (raise-argument-error 'set-union "set?" 0 set set2))
-    (unless (set? set2) (raise-argument-error 'set-union "set?" 1 set set2))
-    (let ([ht (set-ht set)]
-          [ht2 (set-ht set2)])
+    (unless (gset? set) (raise-argument-error 'set-union "set?" 0 set set2))
+    (unless (gset? set2) (raise-argument-error 'set-union "set?" 1 set set2))
+    (let ([ht (hash-set-ht set)]
+          [ht2 (hash-set-ht set2)])
       (check-same-equiv 'set-union set set2 ht ht2)
       (let-values ([(ht ht2)
                     (if ((hash-count ht2) . > . (hash-count ht))
                         (values ht2 ht)
                         (values ht ht2))])
-        (make-set
+        (make-hash-set
          (for/fold ([ht ht]) ([v (in-hash-keys ht2)])
            (hash-set ht v #t)))))]
    [(set . sets)
     (for ([s (in-list (cons set sets))]
           [i (in-naturals)])
-      (unless (set? s) (apply raise-argument-error 'set-union "set?" i (cons set sets))))
+      (unless (gset? s) (apply raise-argument-error 'set-union "set?" i (cons set sets))))
     (for/fold ([set set]) ([set2 (in-list sets)])
       (set-union set set2))]))
 
@@ -201,63 +229,63 @@
 (define set-intersect
   (case-lambda
    [(set) 
-    (unless (set? set) (raise-argument-error 'set-intersect "set?" 0 set))
+    (unless (gset? set) (raise-argument-error 'set-intersect "set?" 0 set))
     set]
    [(set set2)
-    (unless (set? set) (raise-argument-error 'set-intersect "set?" 0 set set2))
-    (unless (set? set2) (raise-argument-error 'set-intersect "set?" 1 set set2))
-    (let ([ht1 (set-ht set)]
-          [ht2 (set-ht set2)])
+    (unless (gset? set) (raise-argument-error 'set-intersect "set?" 0 set set2))
+    (unless (gset? set2) (raise-argument-error 'set-intersect "set?" 1 set set2))
+    (let ([ht1 (hash-set-ht set)]
+          [ht2 (hash-set-ht set2)])
       (check-same-equiv 'set-intersect set set2 ht1 ht2)
       (let-values ([(ht1 ht2) (if ((hash-count ht1) . < . (hash-count ht2))
                                   (values ht1 ht2)
                                   (values ht2 ht1))])
-        (make-set
-         (for/fold ([ht (empty-like (set-ht set))]) ([v (in-hash-keys ht1)])
+        (make-hash-set
+         (for/fold ([ht (empty-like (hash-set-ht set))]) ([v (in-hash-keys ht1)])
            (if (hash-ref ht2 v #f)
                (hash-set ht v #t)
                ht)))))]
    [(set . sets)
     (for ([s (in-list (cons set sets))]
           [i (in-naturals)])
-      (unless (set? s) (apply raise-argument-error 'set-intersect "set?" i (cons set sets))))
+      (unless (gset? s) (apply raise-argument-error 'set-intersect "set?" i (cons set sets))))
     (for/fold ([set set]) ([set2 (in-list sets)])
       (set-intersect set set2))]))
 
 (define set-subtract
   (case-lambda
    [(set) 
-    (unless (set? set) (raise-argument-error 'set-subtract "set?" 0 set))
+    (unless (gset? set) (raise-argument-error 'set-subtract "set?" 0 set))
     set]
    [(set set2)
-    (unless (set? set) (raise-argument-error 'set-subtract "set?" 0 set set2))
-    (unless (set? set2) (raise-argument-error 'set-subtract "set?" 1 set set2))
-    (let ([ht1 (set-ht set)]
-          [ht2 (set-ht set2)])
+    (unless (gset? set) (raise-argument-error 'set-subtract "set?" 0 set set2))
+    (unless (gset? set2) (raise-argument-error 'set-subtract "set?" 1 set set2))
+    (let ([ht1 (hash-set-ht set)]
+          [ht2 (hash-set-ht set2)])
       (check-same-equiv 'set-subtract set set2 ht1 ht2)
       (if ((* 2 (hash-count ht1)) . < . (hash-count ht2))
           ;; Add elements from ht1 that are not in ht2:
-          (make-set
+          (make-hash-set
            (for/fold ([ht (empty-like ht1)]) ([v (in-hash-keys ht1)])
              (if (hash-ref ht2 v #f)
                  ht
                  (hash-set ht v #t))))
           ;; Remove elements from ht1 that are in ht2
-          (make-set
+          (make-hash-set
            (for/fold ([ht ht1]) ([v (in-hash-keys ht2)])
              (hash-remove ht v)))))]
    [(set . sets)
     (for ([s (in-list (cons set sets))]
           [i (in-naturals)])
-      (unless (set? s) (apply raise-argument-error 'set-subtract "set?" i (cons s sets))))
+      (unless (gset? s) (apply raise-argument-error 'set-subtract "set?" i (cons s sets))))
     (for/fold ([set set]) ([set2 (in-list sets)])
       (set-subtract set set2))]))
 
 (define (subset* who set2 set1 proper?)
-  (unless (set? set2) (raise-argument-error who "set?" 0 set2 set1))
-  (unless (set? set1) (raise-argument-error who "set?" 0 set2 set1))
-  (let ([ht1 (set-ht set1)]
-        [ht2 (set-ht set2)])
+  (unless (gset? set2) (raise-argument-error who "set?" 0 set2 set1))
+  (unless (gset? set1) (raise-argument-error who "set?" 0 set2 set1))
+  (let ([ht1 (hash-set-ht set1)]
+        [ht2 (hash-set-ht set2)])
     (check-same-equiv who set set2 ht1 ht2)
     (and (for/and ([v (in-hash-keys ht2)])
            (hash-ref ht1 v #f))
@@ -272,21 +300,21 @@
   (subset* 'proper-subset? one two #t))
 
 (define (set-first set)
-  (unless (set? set) (raise-argument-error 'set-first "set?" set))
-  (define ht (set-ht set))
+  (unless (gset? set) (raise-argument-error 'set-first "set?" set))
+  (define ht (hash-set-ht set))
   (if (zero? (hash-count ht))
       (raise-arguments-error 'set-first "given set is empty")
       (hash-iterate-key ht (hash-iterate-first ht))))
 
 (define (set-rest set)
-  (unless (set? set) (raise-argument-error 'set-rest "set?" set))
-  (define ht (set-ht set))
+  (unless (gset? set) (raise-argument-error 'set-rest "set?" set))
+  (define ht (hash-set-ht set))
   (if (zero? (hash-count ht))
       (raise-arguments-error 'set-rest "given set is empty")
-      (make-set (hash-remove ht (hash-iterate-key ht (hash-iterate-first ht))))))
+      (make-hash-set (hash-remove ht (hash-iterate-key ht (hash-iterate-first ht))))))
 
 (define (set-map set proc)
-  (unless (set? set) (raise-argument-error 'set-map "set?" 0 set proc))
+  (unless (gset? set) (raise-argument-error 'set-map "set?" 0 set proc))
   (unless (and (procedure? proc)
                (procedure-arity-includes? proc 1))
     (raise-argument-error 'set-map "(any/c . -> . any/c)" 1 set proc))
@@ -294,7 +322,7 @@
     (proc v)))
 
 (define (set-for-each set proc)
-  (unless (set? set) (raise-argument-error 'set-for-each "set?" 0 set proc))
+  (unless (gset? set) (raise-argument-error 'set-for-each "set?" 0 set proc))
   (unless (and (procedure? proc)
                (procedure-arity-includes? proc 1))
     (raise-argument-error 'set-for-each "(any/c . -> . any/c)" 1 set proc))
@@ -302,8 +330,8 @@
     (proc v)))
 
 (define (in-set set)
-  (unless (set? set) (raise-argument-error 'in-set "set?" 0 set))
-  (in-hash-keys (set-ht set)))
+  (unless (gset? set) (raise-argument-error 'in-set "set?" 0 set))
+  (in-hash-keys (hash-set-ht set)))
 
 (define-sequence-syntax *in-set
   (lambda () #'in-set)
@@ -316,7 +344,7 @@
        #`[(id)
           (:do-in
            ;; outer bindings:
-           ([(ht) (let ([s st]) (if (set? s) (set-ht s) (list s)))])
+           ([(ht) (let ([s st]) (if (gset? s) (hash-set-ht s) (list s)))])
            ;; outer check:
            (unless (hash? ht)
              ;; let `in-set' report the error:
@@ -352,7 +380,7 @@
 
 (define (get-pred a-set/c)
   (case (set/c-cmp a-set/c)
-    [(dont-care) set?]
+    [(dont-care) gset?]
     [(eq) set-eq?]
     [(eqv) set-eqv?]
     [(equal) set-equal?]))
@@ -460,27 +488,27 @@
 ;; ----
 
 (define (set=? one two)
-  (unless (set? one) (raise-argument-error 'set=? "set?" 0 one two))
-  (unless (set? two) (raise-argument-error 'set=? "set?" 1 one two))
+  (unless (gset? one) (raise-argument-error 'set=? "set?" 0 one two))
+  (unless (gset? two) (raise-argument-error 'set=? "set?" 1 one two))
   ;; Sets implement prop:equal+hash
   (equal? one two))
 
 (define set-symmetric-difference
   (case-lambda
     [(set)
-     (unless (set? set) (raise-argument-error 'set-symmetric-difference "set?" 0 set))
+     (unless (gset? set) (raise-argument-error 'set-symmetric-difference "set?" 0 set))
      set]
     [(set set2)
-     (unless (set? set) (raise-argument-error 'set-symmetric-difference "set?" 0 set set2))
-     (unless (set? set2) (raise-argument-error 'set-symmetric-difference "set?" 1 set set2))
-     (let ([ht1 (set-ht set)]
-           [ht2 (set-ht set2)])
+     (unless (gset? set) (raise-argument-error 'set-symmetric-difference "set?" 0 set set2))
+     (unless (gset? set2) (raise-argument-error 'set-symmetric-difference "set?" 1 set set2))
+     (let ([ht1 (hash-set-ht set)]
+           [ht2 (hash-set-ht set2)])
       (check-same-equiv 'set-symmetric-difference set set2 ht1 ht2)
       (let-values ([(big small)
                     (if (>= (hash-count ht1) (hash-count ht2))
                         (values ht1 ht2)
                         (values ht2 ht1))])
-        (make-set
+        (make-hash-set
          (for/fold ([ht big]) ([e (in-hash-keys small)])
            (if (hash-ref ht e #f)
                (hash-remove ht e)
@@ -488,13 +516,13 @@
     [(set . sets)
      (for ([s (in-list (cons set sets))]
            [i (in-naturals)])
-       (unless (set? s) (apply raise-argument-error 'set-symmetric-difference "set?" i (cons s sets))))
+       (unless (gset? s) (apply raise-argument-error 'set-symmetric-difference "set?" i (cons s sets))))
      (for/fold ([set set]) ([set2 (in-list sets)])
        (set-symmetric-difference set set2))]))
 
 (define (set->list set)
-  (unless (set? set) (raise-argument-error 'set->list "set?" 0 set))
-  (for/list ([elem (in-hash-keys (set-ht set))]) elem))
+  (unless (gset? set) (raise-argument-error 'set->list "set?" 0 set))
+  (for/list ([elem (in-hash-keys (hash-set-ht set))]) elem))
 (define (list->set elems)
   (unless (list? elems) (raise-argument-error 'list->set "list?" 0 elems))
   (apply set elems))
