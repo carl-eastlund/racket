@@ -83,26 +83,27 @@
     (define gen:set->list values)]))
 
 (define (generic-set/c c)
+  (define set-of-c (recursive-contract (make-set-contract c)))
   (set/c
     [set-count (-> set? exact-nonnegative-integer?)]
     [set-member? (-> set? c boolean?)]
-    [set-add (-> set? c (make-set-contract c))]
-    [set-remove (-> set? c (make-set-contract c))]
+    [set-add (-> set? c set-of-c)]
+    [set-remove (-> set? c set-of-c)]
     [set->stream (-> set? stream?)]
-    [gen:empty-set (-> set? (make-set-contract c))]
+    [gen:empty-set (-> set? set-of-c)]
     [gen:set-first (-> set? c)]
-    [gen:set-rest (-> set? (make-set-contract c))]
+    [gen:set-rest (-> set? set-of-c)]
     [gen:set-map (-> set? (-> c any/c) list?)]
     [gen:set-for-each (-> set? (-> c any) any)]
     [gen:set->list (-> set? (listof c))]
-    [gen:set=? (-> set? (make-set-contract c) boolean?)]
-    [gen:subset? (-> set? (make-set-contract c) boolean?)]
-    [gen:proper-subset? (-> set? (make-set-contract c) boolean?)]
-    [gen:set-union (-> set? (make-set-contract c) boolean?)]
-    [gen:set-intersect (-> set? (make-set-contract c) (make-set-contract c))]
-    [gen:set-subtract (-> set? (make-set-contract c) (make-set-contract c))]
+    [gen:set=? (-> set? set-of-c boolean?)]
+    [gen:subset? (-> set? set-of-c boolean?)]
+    [gen:proper-subset? (-> set? set-of-c boolean?)]
+    [gen:set-union (-> set? set-of-c boolean?)]
+    [gen:set-intersect (-> set? set-of-c set-of-c)]
+    [gen:set-subtract (-> set? set-of-c set-of-c)]
     [gen:set-symmetric-difference
-     (-> set? (make-set-contract c) (make-set-contract c))]))
+     (-> set? set-of-c set-of-c)]))
 
 (define (empty-set-supported? s) (hash-ref (set-supported s) 'gen:empty-set))
 (define (set-add-supported? s) (hash-ref (set-supported s) 'set-add))
@@ -352,8 +353,6 @@
 (define (set-contract-projection c)
   (define ctc (set-contract-ctc c))
   (define cmp (set-contract-cmp c))
-  (define gen:set/c (generic-set/c ctc))
-  (define list:set/c (listof ctc))
   (lambda (b)
     (define (check pred x msg)
       (unless (pred x)
@@ -367,8 +366,8 @@
         [(eqv) (check set-eqv? x "an eqv?-based set")]
         [(equal) (check set-equal? x "an equal?-based set")])
       (if (list? x)
-          (list:proc x)
-          (gen:proc x)))))
+          (((contract-projection (listof ctc)) b) x)
+          (((contract-projection (generic-set/c ctc)) b) x)))))
 
 (struct flat-set/c set-contract []
   #:property prop:flat-contract
