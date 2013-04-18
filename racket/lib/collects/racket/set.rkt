@@ -323,8 +323,6 @@
         (raise-argument-error 'set/c 
                               "(or/c 'dont-care 'equal? 'eq? 'eqv)" 
                               cmp))
-      (unless (chaperone-contract? ctc)
-        (raise-argument-error 'set/c "chaperone-contract?" ctc))
       (cond
         [(flat-contract? ctc)
          (flat-set/c ctc cmp)]
@@ -337,13 +335,23 @@
                "comparison" cmp)
              (chaperone-set/c ctc cmp))]
         [else
-         (impersonator-set/c ctc cmp)]))
+         (raise-argument-error 'set/c "chaperone-contract?" ctc)]))
     'set/c))
 
 (struct set-contract [ctc cmp])
 
 (define (set-contract-name c)
-  (list 'set/c (contract-name (set-contract-ctc c))))
+  (define ctc (set-contract-ctc c))
+  (define cmp (set-contract-cmp c))
+  (define suffix
+    (case cmp
+      [(eq) '(#:cmp (quote eq))]
+      [(eqv) '(#:cmp (quote eqv))]
+      [(equal) '(#:cmp (quote equal))]
+      [(dont-care) '()]))
+  (define prefix
+    (contract-name ctc))
+  `(set/c ,prefix ,@suffix))
 
 (define (set-contract-first-order c)
   (define ctc (set-contract-ctc c))
@@ -384,25 +392,37 @@
           (((contract-projection (listof ctc)) b) x)
           (((contract-projection (generic-set/c ctc)) b) x)))))
 
+(define (set-contract-flat-projection c)
+  (define ctc (set-contract-ctc c))
+  (define cmp (set-contract-cmp c))
+  (lambda (b)
+    (define (check pred x msg)
+      (unless (pred x)
+        (raise-blame-error b x '(expected: "~a" given: "~v") msg x)))
+    (lambda (x)
+      (check set? x "a set")
+      (case cmp
+        [(eq) (check set-eq? x "an eq?-based set")]
+        [(eqv) (check set-eqv? x "an eqv?-based set")]
+        [(equal) (check set-equal? x "an equal?-based set")])
+      (if (list? x)
+          (((contract-projection (listof ctc)) b) x)
+          (begin
+            (for ([v (in-set x)])
+              (((contract-projection ctc) b) v))
+            x)))))
+
 (struct flat-set/c set-contract []
   #:property prop:flat-contract
   (build-flat-contract-property
     #:name set-contract-name
     #:first-order set-contract-first-order
     #:stronger set-contract-stronger
-    #:projection set-contract-projection))
+    #:projection set-contract-flat-projection))
 
 (struct chaperone-set/c set-contract []
   #:property prop:chaperone-contract
   (build-chaperone-contract-property
-    #:name set-contract-name
-    #:first-order set-contract-first-order
-    #:stronger set-contract-stronger
-    #:projection set-contract-projection))
-
-(struct impersonator-set/c set-contract []
-  #:property prop:contract
-  (build-contract-property
     #:name set-contract-name
     #:first-order set-contract-first-order
     #:stronger set-contract-stronger
