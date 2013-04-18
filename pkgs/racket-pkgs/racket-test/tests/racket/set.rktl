@@ -38,7 +38,7 @@
 (test 3 set-count (set (string #\a) "b" "c" (string #\a)))
 (test 4 set-count (seteqv (string #\a) "b" "c" (string #\a)))
 (test 4 set-count (seteq (string #\a) "b" "c" (string #\a)))
-(test 3 set-count (list (string #\a) "b" "c" (string #\a)))
+(test 4 set-count (list (string #\a) "b" "c" (string #\a)))
 
 (test #t set-member? (set 1 2 3) 1)
 (test #t set-member? (set 1 2 3) 2)
