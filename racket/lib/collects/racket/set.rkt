@@ -323,6 +323,8 @@
         (raise-argument-error 'set/c 
                               "(or/c 'dont-care 'equal? 'eq? 'eqv)" 
                               cmp))
+      (unless (chaperone-contract? ctc)
+        (raise-argument-error 'set/c "chaperone-contract?" ctc))
       (cond
         [(flat-contract? ctc)
          (flat-set/c ctc cmp)]
@@ -595,7 +597,7 @@
 (define (ht-set-code set [rec equal-hash-code])
   (rec (ht-set-table set)))
 
-(struct ht-set [table]
+(serializable-struct ht-set [table]
   #:reflection-name 'set
   #:methods gen:set
   [(define set-count ht-set-count)
