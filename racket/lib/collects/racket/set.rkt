@@ -73,14 +73,7 @@
     (define (set-member? lst x) (if (member x lst) #t #f))
     (define (set-add lst x) (if (member x lst) lst (cons x lst)))
     (define (set-remove lst x) (remove* (list x) lst))
-    (define set->stream values)
-    (define (gen:empty-set lst) '())
-    (define gen:set-empty? null?)
-    (define gen:set-first car)
-    (define gen:set-rest cdr)
-    (define (gen:set-map lst f) (map f lst))
-    (define (gen:set-for-each lst f) (for-each f lst))
-    (define gen:set->list values)]))
+    (define set->stream values)]))
 
 (define (generic-set/c c)
   (define set-of-c (recursive-contract (make-set-contract c)))
@@ -105,26 +98,40 @@
     [gen:set-symmetric-difference
      (-> set? set-of-c set-of-c)]))
 
-(define (empty-set-supported? s) (hash-ref (set-supported s) 'gen:empty-set))
-(define (set-add-supported? s) (hash-ref (set-supported s) 'set-add))
-(define (set-remove-supported? s) (hash-ref (set-supported s) 'set-remove))
+(define (supported? set sym)
+  (cond
+    [(list? set) #f]
+    [else (hash-ref (set-supported set) sym)]))
+
+(define (empty-set-supported? s)
+  (or (list? s) (supported? 'gen:empty-set)))
+
+(define (set-add-supported? s)
+  (or (list? s) (supported? s 'set-add)))
+
+(define (set-remove-supported? s)
+  (or (list? s) (supported? s 'set-remove)))
 
 (define (empty-set [s (set)])
   (unless (and (set? s) (empty-set-supported? s))
     (raise-argument-error 'empty-set "(and/c set? empty-set-supported?)" 0 s))
-  (gen:empty-set s))
+  (cond
+    [(list? s) '()]
+    [else (gen:empty-set s)]))
 
 (define (set-empty? s)
   (unless (set? s) (raise-argument-error 'set-empty? "set?" 0 s))
   (cond
-    [(hash-ref (set-supported s) 'gen:set-empty?)
+    [(list? s) (null? s)]
+    [(supported? s 'gen:set-empty?)
      (gen:set-empty? s)]
     [else (stream-empty? (set->stream s))]))
 
 (define (set-first s)
   (unless (set? s) (raise-argument-error 'set-first "set?" 0 s))
   (cond
-    [(hash-ref (set-supported s) 'gen:set-first)
+    [(list? s) (car s)]
+    [(supported? s 'gen:set-first)
      (gen:set-first s)]
     [else
      (stream-first (set->stream s))]))
@@ -133,7 +140,8 @@
   (unless (and (set? s) (set-remove-supported? s))
     (raise-argument-error 'set-rest "(and/c set? set-remove-supported?)" 0 s))
   (cond
-    [(hash-ref (set-supported s) 'gen:set-rest)
+    [(list? s) (cdr s)]
+    [(supported? s 'gen:set-rest)
      (gen:set-rest s)]
     [else
      (set-remove s (set-first s))]))
@@ -144,7 +152,8 @@
                (procedure-arity-includes? proc 1))
     (raise-argument-error 'set-for-each "(any/c . -> . any/c)" 1 set proc))
   (cond
-    [(hash-ref (set-supported set) 'gen:set-for-each)
+    [(list? set) (for-each proc set)]
+    [(supported? set 'gen:set-for-each)
      (gen:set-for-each set proc)]
     [else
      (for ([v (in-set set)])
@@ -156,17 +165,28 @@
                (procedure-arity-includes? proc 1))
     (raise-argument-error 'set-map "(any/c . -> . any/c)" 1 set proc))
   (cond
-    [(hash-ref (set-supported set) 'gen:set-map)
+    [(list? set) (map proc set)]
+    [(supported? set 'gen:set-map)
      (gen:set-map set proc)]
     [else
      (for/list ([v (in-set set)])
        (proc v))]))
 
+(define (set->list set)
+  (unless (set? set) (raise-argument-error 'set->list "set?" 0 set))
+  (cond
+    [(list? set) set]
+    [(supported? set 'gen:set->list)
+     (gen:set->list set)]
+    [else
+     (for/list ([v (in-set set)])
+       v)]))
+
 (define (subset? one two)
   (unless (set? one) (raise-argument-error 'subset? "set?" 0 one two))
   (unless (set? two) (raise-argument-error 'subset? "set?" 1 one two))
   (cond
-    [(hash-ref (set-supported one) 'gen:subset?)
+    [(supported? one 'gen:subset?)
      (gen:subset? one two)]
     [else
      (for/and ([v (in-set one)])
@@ -176,7 +196,7 @@
   (unless (set? one) (raise-argument-error 'set=? "set?" 0 one two))
   (unless (set? two) (raise-argument-error 'set=? "set?" 1 one two))
   (cond
-    [(hash-ref (set-supported one) 'gen:set=?)
+    [(supported? one 'gen:set=?)
      (gen:set=? one two)]
     [else (and (subset? one two) (subset? two one))]))
 
@@ -184,19 +204,20 @@
   (unless (set? one) (raise-argument-error 'proper-subset? "set?" 0 one two))
   (unless (set? two) (raise-argument-error 'proper-subset? "set?" 1 one two))
   (cond
-    [(hash-ref (set-supported one) 'gen:proper-subset?)
+    [(supported? one 'gen:proper-subset?)
      (gen:proper-subset? one two)]
     [else (and (subset? one two) (not (subset? two one)))]))
 
 (define set-union
   (case-lambda
     [(s)
-     (unless (set? s) (raise-argument-error 'set-union "set?" 0 s))]
+     (unless (set? s) (raise-argument-error 'set-union "set?" 0 s))
+     s]
     [(one two)
      (unless (set? one) (raise-argument-error 'set-union? "set?" 0 one two))
      (unless (set? two) (raise-argument-error 'set-union? "set?" 1 one two))
      (cond
-       [(hash-ref (set-supported one) 'gen:set-union)
+       [(supported? one 'gen:set-union)
         (gen:set-union one two)]
        [else
         (for/fold ([s one]) ([v (in-set two)])
@@ -211,12 +232,13 @@
 (define set-intersect
   (case-lambda
     [(s)
-     (unless (set? s) (raise-argument-error 'set-intersect "set?" 0 s))]
+     (unless (set? s) (raise-argument-error 'set-intersect "set?" 0 s))
+     s]
     [(one two)
      (unless (set? one) (raise-argument-error 'set-intersect? "set?" 0 one two))
      (unless (set? two) (raise-argument-error 'set-intersect? "set?" 1 one two))
      (cond
-       [(hash-ref (set-supported one) 'gen:set-intersect)
+       [(supported? one 'gen:set-intersect)
         (gen:set-intersect one two)]
        [else
         (for/fold ([s one]) ([v (in-set one)])
@@ -234,12 +256,13 @@
 (define set-subtract
   (case-lambda
     [(s)
-     (unless (set? s) (raise-argument-error 'set-subtract "set?" 0 s))]
+     (unless (set? s) (raise-argument-error 'set-subtract "set?" 0 s))
+     s]
     [(one two)
      (unless (set? one) (raise-argument-error 'set-subtract? "set?" 0 one two))
      (unless (set? two) (raise-argument-error 'set-subtract? "set?" 1 one two))
      (cond
-       [(hash-ref (set-supported one) 'gen:set-subtract)
+       [(supported? one 'gen:set-subtract)
         (gen:set-subtract one two)]
        [else
         (for/fold ([s one]) ([v (in-set two)])
@@ -256,14 +279,15 @@
   (case-lambda
     [(s)
      (unless (set? s)
-       (raise-argument-error 'set-symmetric-difference "set?" 0 s))]
+       (raise-argument-error 'set-symmetric-difference "set?" 0 s))
+     s]
     [(one two)
      (unless (set? one)
        (raise-argument-error 'set-symmetric-difference? "set?" 0 one two))
      (unless (set? two)
        (raise-argument-error 'set-symmetric-difference? "set?" 1 one two))
      (cond
-       [(hash-ref (set-supported one) 'gen:set-symmetric-difference)
+       [(supported? one 'gen:set-symmetric-difference)
         (gen:set-symmetric-difference one two)]
        [else
         (for/fold ([s one]) ([v (in-set two)])
@@ -277,15 +301,6 @@
        (unless (set? s2)
          (apply raise-argument-error 'set-symmetric-difference "set?" i s sets))
        (set-symmetric-difference s1 s2))]))
-
-(define (set->list set)
-  (unless (set? set) (raise-argument-error 'set->list "set?" 0 set))
-  (cond
-    [(hash-ref (set-supported set) 'gen:set->list)
-     (gen:set->list set)]
-    [else
-     (for/list ([v (in-set set)])
-       v)]))
 
 (define-sequence-syntax in-set
   (lambda () #'in-set/proc)
@@ -357,8 +372,6 @@
     (define (check pred x msg)
       (unless (pred x)
         (raise-blame-error b x '(expected: "~a" given: "~v") msg x)))
-    (define gen:proc ((contract-projection gen:set/c) b))
-    (define list:proc ((contract-projection list:set/c) b))
     (lambda (x)
       (check set? x "a set")
       (case cmp
@@ -504,7 +517,7 @@
   (check-ht-set/equiv? 'subset? set1 set2)
   (define ht1 (ht-set-table set1))
   (define ht2 (ht-set-table set2))
-  (and (<= (hash-count ht1 ht2))
+  (and (<= (hash-count ht1) (hash-count ht2))
     (for/and ([x (in-hash-keys ht1)])
       (hash-ref ht2 x #f))))
 
@@ -512,7 +525,7 @@
   (check-ht-set/equiv? 'proper-subset? set1 set2)
   (define ht1 (ht-set-table set1))
   (define ht2 (ht-set-table set2))
-  (and (< (hash-count ht1 ht2))
+  (and (< (hash-count ht1) (hash-count ht2))
     (for/and ([x (in-hash-keys ht1)])
       (hash-ref ht2 x #f))))
 
