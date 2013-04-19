@@ -76,7 +76,7 @@
     (define set->stream values)]))
 
 (define (generic-set/c c)
-  (define set-of-c (recursive-contract (make-set-contract c)))
+  (define set-of-c (recursive-contract (make-set-contract c) #:chaperone))
   (set/c
     [set-count (-> set? exact-nonnegative-integer?)]
     [set-member? (-> set? c boolean?)]
