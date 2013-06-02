@@ -51,7 +51,7 @@
        (check-identifier! #'defined-table)
        (for-each check-identifier! (syntax->list #'(generic ...)))
        (define generics (syntax->list #'(generic ...)))
-       (define name-str (symbol->string (syntax-e #'name?)))
+       (define name-stx (symbol->string (syntax-e #'name?)))
        (define idxs (for/list ([i (in-naturals 0)] [_ generics]) i))
        (define prop-defined-already? (syntax-e #'defined-already?))
        ;; syntax introducers for each default implementation set
@@ -73,158 +73,159 @@
          (for/list ([generic generics])
            (for/list ([introducer pred-introducers])
              (introducer generic))))
-       (with-syntax ([name-str name-str]
-                     [how-many-generics (length idxs)]
-                     [(generic-arity-coerce ...) (generate-temporaries #'(generic ...))]
-                     [(generic-idx ...) idxs]
-                     [(generic-this-idx ...)
-                      (for/list ([top-ga (syntax->list #'(generic-args ...))])
-                        (let loop ([ga top-ga]
-                                   [i 0])
-                          (syntax-case ga ()
-                            [(keyword id . ga)
-                             (and (keyword-stx? #'keyword)
-                                  (identifier? #'id))
-                             (loop #'ga i)]
-                            [(id . ga)
-                             (and (identifier? #'id))
-                             (if (free-identifier=? #'header #'id)
-                                 i
-                                 (loop #'ga (add1 i)))]
-                            [(keyword [id] . ga)
-                             (and (keyword-stx? #'keyword)
-                                  (identifier? #'id))
-                             (loop #'ga i)]
-                            [([id] . ga)
-                             (and (identifier? #'id))
-                             (loop #'ga i)]
-                            [_
-                             (identifier? #'id)
-                             (raise-syntax-error #f "No required by-position generic argument" top-ga)])))]
-                     [(fake-args ...)
-                      (for/list ([ga (syntax->list #'(generic-args ...))])
-                        (let loop ([ga ga])
-                          (syntax-case ga ()
-                            [(keyword id . ga)
-                             (and (keyword-stx? #'keyword)
-                                  (identifier? #'id))
-                             #`(keyword id . #,(loop #'ga))]
-                            [(id . ga)
-                             (and (identifier? #'id))
-                             #`(id . #,(loop #'ga))]
-                            [(keyword [id] . ga)
-                             (and (keyword-stx? #'keyword)
-                                  (identifier? #'id))
-                             #`(keyword [id #f] . #,(loop #'ga))]
-                            [([id] . ga)
-                             (and (identifier? #'id))
-                             #`([id #f] . #,(loop #'ga))]
-                            [id
-                             (identifier? #'id)
-                             #'id]
-                            [()
-                             #'()])))]
-                     ;; if we're the ones defining the struct property,
-                     ;; generate a new id, otherwise use the struct property
-                     ;; accessor that we were passed
-                     [get-generics
-                      (if prop-defined-already?
-                          #'defined-already?
-                          (generate-temporary 'get-generics))]
-                     ;; for each generic method, builds a cond clause to do the
-                     ;; predicate dispatch found in method-impl-list
-                     [((cond-impl ...) ...) marked-generics]
-                     [(-name?) (generate-temporaries #'(name?))])
-         #`(begin
-             (define-syntax name (list #'prop:name #'generic ...))
-             ; XXX optimize no kws or opts
-             (define generic-arity-coerce
-               (let*-values ([(p) (lambda fake-args #f)]
-                             [(generic-arity-spec) (procedure-arity p)]
-                             [(generic-required-kws generic-allowed-kws) (procedure-keywords p)])
-                 (lambda (method-name f)
-                   (unless (procedure? f)
-                     (raise-arguments-error
-                      'name
-                      "generic method definition is not a function"
-                      "method" method-name
-                      "given" f))
-                   (unless (arity-includes? (procedure-arity f) generic-arity-spec)
-                     (raise-arguments-error
-                      'name
-                      "method definition has an incorrect arity"
-                      "method" method-name
-                      "given arity" (procedure-arity f)
-                      "expected arity" generic-arity-spec))
-                   (procedure-reduce-keyword-arity f generic-arity-spec generic-required-kws generic-allowed-kws))))
-             ...
-             #,@(if prop-defined-already?
-                    '() ; we don't need to define it
-                    (list
-                     #'(begin
-                         (define-values (prop:name -name? get-generics)
-                           (make-struct-type-property
-                            'name
-                            (lambda (generic-vector si)
-                              (unless (vector? generic-vector)
-                                (error 'name
-                                       "bad generics table, expecting a vector, got ~e"
-                                       generic-vector))
-                              (unless (= (vector-length generic-vector)
-                                         how-many-generics)
-                                (error 'name
-                                       "bad generics table, expecting a vector of length ~e, got ~e"
-                                       how-many-generics
-                                       (vector-length generic-vector)))
-                              (vector (let ([mthd-generic (vector-ref generic-vector generic-idx)])
-                                        (and mthd-generic
-                                             (generic-arity-coerce 'generic mthd-generic)))
-                                      ...))
-                            null #t))
-                         ;; overrides the interface predicate so that any of the default
-                         ;; types also answer #t
-                         (define (name? x)
-                           (or (-name? x) (pred? x) ...)))))
-             ;; Hash table mapping method name symbols to
-             ;; whether the given method is implemented
-             (define (defined-table this)
-               (unless (name? this)
-                 (raise-argument-error 'defined-table name-str this))
-               (for/hash ([name (in-list '(#,@(map syntax->datum generics)))]
-                          [gen (in-vector (get-generics this))])
-                 (values name (not (not gen)))))
-             ;; Define the contract that goes with this generic interface
-             #,@(if (syntax-e #'define-generics-contract)
-                    (list #'(define-generics-contract header name? get-generics
-                             (generic generic-idx) ...))
-                    ;; don't define a contract when given #f
-                    '())
-             ;; Define default implementations
-             #,@method-impl-list
-             ;; Define generic functions
-             (define generic
-               (generic-arity-coerce
-                'generic
-                ;; We could put `generic-args` here for the method header, but
-                ;; since we need to keyword-apply the method in the method table,
-                ;; it doesn't help. Thus we use `make-keyword-procedure`.
-                ;;
-                ;; If keyword-apply ends up being a bottleneck, consider
-                ;; adding the second argument to `make-keyword-procedure` again.
-                (make-keyword-procedure
-                 (lambda (kws kws-args . given-args)
-                   (define this (list-ref given-args generic-this-idx))
-                   (cond
-                    [#,(if prop-defined-already?
-                           #'(name? this)
-                           #'(-name? this))
-                     (let ([m (vector-ref (get-generics this) generic-idx)])
-                       (if m
-                           (keyword-apply m kws kws-args given-args)
-                           (error 'generic "not implemented for ~e" this)))]
-                    ;; default cases
-                    [(pred? this) (keyword-apply cond-impl kws kws-args given-args)]
-                    ...
-                    [else (raise-argument-error 'generic name-str this)])))))
-             ...)))]))
+       (define/with-syntax name-str name-stx)
+       (define/with-syntax how-many-generics (length idxs))
+       (define/with-syntax (generic-arity-coerce ...)
+         (generate-temporaries #'(generic ...)))
+       (define/with-syntax (generic-idx ...) idxs)
+       (define/with-syntax (generic-this-idx ...)
+         (for/list ([top-ga (syntax->list #'(generic-args ...))])
+           (let loop ([ga top-ga]
+                      [i 0])
+             (syntax-case ga ()
+               [(keyword id . ga)
+                (and (keyword-stx? #'keyword)
+                  (identifier? #'id))
+                (loop #'ga i)]
+               [(id . ga)
+                (and (identifier? #'id))
+                (if (free-identifier=? #'header #'id)
+                  i
+                  (loop #'ga (add1 i)))]
+               [(keyword [id] . ga)
+                (and (keyword-stx? #'keyword)
+                  (identifier? #'id))
+                (loop #'ga i)]
+               [([id] . ga)
+                (and (identifier? #'id))
+                (loop #'ga i)]
+               [_
+                (identifier? #'id)
+                (raise-syntax-error #f "No required by-position generic argument" top-ga)]))))
+       (define/with-syntax (fake-args ...)
+         (for/list ([ga (syntax->list #'(generic-args ...))])
+           (let loop ([ga ga])
+             (syntax-case ga ()
+               [(keyword id . ga)
+                (and (keyword-stx? #'keyword)
+                  (identifier? #'id))
+                #`(keyword id . #,(loop #'ga))]
+               [(id . ga)
+                (and (identifier? #'id))
+                #`(id . #,(loop #'ga))]
+               [(keyword [id] . ga)
+                (and (keyword-stx? #'keyword)
+                  (identifier? #'id))
+                #`(keyword [id #f] . #,(loop #'ga))]
+               [([id] . ga)
+                (and (identifier? #'id))
+                #`([id #f] . #,(loop #'ga))]
+               [id
+                (identifier? #'id)
+                #'id]
+               [()
+                #'()]))))
+       ;; if we're the ones defining the struct property,
+       ;; generate a new id, otherwise use the struct property
+       ;; accessor that we were passed
+       (define/with-syntax get-generics
+         (if prop-defined-already?
+           #'defined-already?
+           (generate-temporary 'get-generics)))
+       ;; for each generic method, builds a cond clause to do the
+       ;; predicate dispatch found in method-impl-list
+       (define/with-syntax ((cond-impl ...) ...) marked-generics)
+       (define/with-syntax (-name?) (generate-temporaries #'(name?)))
+       #`(begin
+           (define-syntax name (list #'prop:name #'generic ...))
+           ; XXX optimize no kws or opts
+           (define generic-arity-coerce
+             (let*-values ([(p) (lambda fake-args #f)]
+                           [(generic-arity-spec) (procedure-arity p)]
+                           [(generic-required-kws generic-allowed-kws) (procedure-keywords p)])
+               (lambda (method-name f)
+                 (unless (procedure? f)
+                   (raise-arguments-error
+                    'name
+                    "generic method definition is not a function"
+                    "method" method-name
+                    "given" f))
+                 (unless (arity-includes? (procedure-arity f) generic-arity-spec)
+                   (raise-arguments-error
+                    'name
+                    "method definition has an incorrect arity"
+                    "method" method-name
+                    "given arity" (procedure-arity f)
+                    "expected arity" generic-arity-spec))
+                 (procedure-reduce-keyword-arity f generic-arity-spec generic-required-kws generic-allowed-kws))))
+           ...
+           #,@(if prop-defined-already?
+                  '() ; we don't need to define it
+                  (list
+                   #'(begin
+                       (define-values (prop:name -name? get-generics)
+                         (make-struct-type-property
+                          'name
+                          (lambda (generic-vector si)
+                            (unless (vector? generic-vector)
+                              (error 'name
+                                     "bad generics table, expecting a vector, got ~e"
+                                     generic-vector))
+                            (unless (= (vector-length generic-vector)
+                                       how-many-generics)
+                              (error 'name
+                                     "bad generics table, expecting a vector of length ~e, got ~e"
+                                     how-many-generics
+                                     (vector-length generic-vector)))
+                            (vector (let ([mthd-generic (vector-ref generic-vector generic-idx)])
+                                      (and mthd-generic
+                                           (generic-arity-coerce 'generic mthd-generic)))
+                                    ...))
+                          null #t))
+                       ;; overrides the interface predicate so that any of the default
+                       ;; types also answer #t
+                       (define (name? x)
+                         (or (-name? x) (pred? x) ...)))))
+           ;; Hash table mapping method name symbols to
+           ;; whether the given method is implemented
+           (define (defined-table this)
+             (unless (name? this)
+               (raise-argument-error 'defined-table name-str this))
+             (for/hash ([name (in-list '(#,@(map syntax->datum generics)))]
+                        [gen (in-vector (get-generics this))])
+               (values name (not (not gen)))))
+           ;; Define the contract that goes with this generic interface
+           #,@(if (syntax-e #'define-generics-contract)
+                  (list #'(define-generics-contract header name? get-generics
+                           (generic generic-idx) ...))
+                  ;; don't define a contract when given #f
+                  '())
+           ;; Define default implementations
+           #,@method-impl-list
+           ;; Define generic functions
+           (define generic
+             (generic-arity-coerce
+              'generic
+              ;; We could put `generic-args` here for the method header, but
+              ;; since we need to keyword-apply the method in the method table,
+              ;; it doesn't help. Thus we use `make-keyword-procedure`.
+              ;;
+              ;; If keyword-apply ends up being a bottleneck, consider
+              ;; adding the second argument to `make-keyword-procedure` again.
+              (make-keyword-procedure
+               (lambda (kws kws-args . given-args)
+                 (define this (list-ref given-args generic-this-idx))
+                 (cond
+                  [#,(if prop-defined-already?
+                         #'(name? this)
+                         #'(-name? this))
+                   (let ([m (vector-ref (get-generics this) generic-idx)])
+                     (if m
+                         (keyword-apply m kws kws-args given-args)
+                         (error 'generic "not implemented for ~e" this)))]
+                  ;; default cases
+                  [(pred? this) (keyword-apply cond-impl kws kws-args given-args)]
+                  ...
+                  [else (raise-argument-error 'generic name-str this)])))))
+           ...))]))
 
