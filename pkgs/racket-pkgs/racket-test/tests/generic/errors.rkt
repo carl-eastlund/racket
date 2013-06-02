@@ -5,13 +5,16 @@
 (module+ test
   (require rackunit)
 
+  (check-exn #rx"expected 2 arguments after keyword"
+             (lambda () (convert-compile-time-error
+                         (struct foo () #:methods gen:equal+hash))))
   (check-exn #rx"not a name for a generics group"
              (lambda () (convert-compile-time-error
-                         (struct foo () #:methods 3))))
+                         (struct foo () #:methods 3 ()))))
   (check-exn #rx"not a name for a generics group"
              (lambda () (convert-compile-time-error
-                         (struct foo () #:methods bad))))
-  (check-exn #rx"method definition has an incorrect arity"
+                         (struct foo () #:methods bad ()))))
+  (check-exn #rx"generic method definition has an incorrect arity"
              (lambda () (convert-compile-time-error
                          (let ()
                           (define-generics foobar
@@ -20,7 +23,7 @@
                                   #:methods gen:foobar
                                   [(define (foo) 0)])
                           'ignore))))
-  (check-exn #rx"method definition has an incorrect arity"
+  (check-exn #rx"generic method definition has an incorrect arity"
              (lambda () (convert-compile-time-error
                          (let ()
                           (define-generics foobar

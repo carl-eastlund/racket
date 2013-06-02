@@ -155,6 +155,185 @@
   ;; preserve from GC:
   (list s1 s2))
 
+(let ()
+  ;; Weak hash table tests, because we apparently don't have any
+
+  (define x1 (string-copy "one"))
+  (define x2 (string-copy "two"))
+  (define x3 (string-copy "three"))
+  (define x4 (string-copy "four"))
+
+  (define (build-from make . xs)
+    (define table (make))
+    (for ([x (in-list xs)])
+      (hash-set! table x (string->symbol x)))
+    (collect-garbage)
+    table)
+
+  (define (build . xs) (apply build-from make-weak-hash xs))
+  (define (buildeq . xs) (apply build-from make-weak-hasheq xs))
+  (define (buildeqv . xs) (apply build-from make-weak-hasheqv xs))
+
+  (test #true equal? (build) (build))
+  (test #true equal? (buildeq) (buildeq))
+  (test #true equal? (buildeqv) (buildeqv))
+
+  (test #false equal? (build) (buildeq))
+  (test #false equal? (buildeq) (buildeqv))
+  (test #false equal? (buildeqv) (build))
+
+  (test #true equal? (build x1 x2 x3) (build x1 x2 x3))
+  (test #true equal? (buildeq x1 x2 x3) (buildeq x1 x2 x3))
+  (test #true equal? (buildeqv x1 x2 x3) (buildeqv x1 x2 x3))
+
+  (test #false equal? (build x1 x2) (build x1 x2 x3))
+  (test #false equal? (buildeq x1 x2) (buildeq x1 x2 x3))
+  (test #false equal? (buildeqv x1 x2) (buildeqv x1 x2 x3))
+
+  (test #false equal? (build x1 x2 x3) (buildeq x1 x2 x3))
+  (test #false equal? (buildeq x1 x2 x3) (buildeqv x1 x2 x3))
+  (test #false equal? (buildeqv x1 x2 x3) (build x1 x2 x3))
+
+  (define b (build x1 x2 x3))
+  (define beq (buildeq x1 x2 x3))
+  (define beqv (buildeqv x1 x2 x3))
+
+  (define b* (hash-copy b))
+  (define beq* (hash-copy beq))
+  (define beqv* (hash-copy beqv))
+
+  (test #true equal? (hash->list b) (hash->list b*))
+  (test #true equal? (hash->list beq) (hash->list beq*))
+  (test #true equal? (hash->list beqv) (hash->list beqv*))
+
+  (hash-remove! b x1)
+  (hash-remove! beq x1)
+  (hash-remove! beqv x1)
+
+  (hash-set! b* x4 'four)
+  (hash-set! beq* x4 'four)
+  (hash-set! beqv* x4 'four)
+
+  (test #false equal? (hash->list b) (hash->list b*))
+  (test #false equal? (hash->list beq) (hash->list beq*))
+  (test #false equal? (hash->list beqv) (hash->list beqv*))
+
+  (test #true equal? (hash->list b) (hash->list (build x2 x3)))
+  (test #true equal? (hash->list beq) (hash->list (buildeq x2 x3)))
+  (test #true equal? (hash->list beqv) (hash->list (buildeqv x2 x3)))
+
+  (test #true equal? (hash->list b*) (hash->list (build x1 x2 x3 x4)))
+  (test #true equal? (hash->list beq*) (hash->list (buildeq x1 x2 x3 x4)))
+  (test #true equal? (hash->list beqv*) (hash->list (buildeqv x1 x2 x3 x4))))
+
+(let ()
+  (local-require racket/fixnum)
+  (define (int=? x y) (fx= x y))
+  (define (int-hc x) (fxand x 1))
+  (define (int-hc2 x) (fxand x 2))
+
+  (define (test-custom-hash make-A make-B)
+
+    (test '() sort (dict->list (make-A)) < #:key car)
+    (test '() sort (dict->list (make-B)) < #:key car)
+
+    (test #t equal? (make-A) (make-A))
+    (test #t equal? (make-B) (make-B))
+    (test #f equal? (make-A) (make-B))
+    (test #f equal? (make-B) (make-A))
+
+    (test '((1 . "1")) sort (dict->list (make-A 1)) < #:key car)
+    (test '((1 . "1")) sort (dict->list (make-B 1)) < #:key car)
+
+    (test #t equal? (make-A 1) (make-A 1))
+    (test #f equal? (make-A 1) (make-A))
+    (test #f equal? (make-A) (make-A 1))
+
+    (test #t equal? (make-B 1) (make-B 1))
+    (test #f equal? (make-B 1) (make-B))
+    (test #f equal? (make-B) (make-B 1))
+
+    (test #f equal? (make-B 1) (make-A 1))
+    (test #f equal? (make-A 1) (make-B 1))
+    (test #f equal? (make-A 1) (make-B))
+    (test #f equal? (make-B 1) (make-A))
+    (test #f equal? (make-A) (make-B 1))
+    (test #f equal? (make-B) (make-A 1))
+
+    (test '((1 . "1") (2 . "2")) sort (dict->list (make-A 1 2)) < #:key car)
+    (test '((1 . "1") (2 . "2")) sort (dict->list (make-B 1 2)) < #:key car)
+
+    (test #t equal? (make-A 1 2) (make-A 1 2))
+    (test #t equal? (make-A 1 2) (make-A 2 1))
+    (test #t equal? (make-A 2 1) (make-A 1 2))
+    (test #f equal? (make-A 1 2) (make-A 1))
+    (test #f equal? (make-A 1 2) (make-A))
+    (test #f equal? (make-A 1) (make-A 1 2))
+    (test #f equal? (make-A) (make-A 1 2))
+
+    (test #t equal? (make-B 1 2) (make-B 1 2))
+    (test #t equal? (make-B 1 2) (make-B 2 1))
+    (test #t equal? (make-B 2 1) (make-B 1 2))
+    (test #f equal? (make-B 1 2) (make-B 1))
+    (test #f equal? (make-B 1 2) (make-B))
+    (test #f equal? (make-B 1) (make-B 1 2))
+    (test #f equal? (make-B) (make-B 1 2))
+
+    (test #f equal? (make-B 1 2) (make-A 1 2))
+    (test #f equal? (make-B 1 2) (make-A 2 1))
+    (test #f equal? (make-B 2 1) (make-A 1 2))
+    (test #f equal? (make-B 1 2) (make-A 1))
+    (test #f equal? (make-B 1 2) (make-A))
+    (test #f equal? (make-B 1) (make-A 1 2))
+    (test #f equal? (make-B) (make-A 1 2))
+
+    (test #f equal? (make-A 1 2) (make-B 1 2))
+    (test #f equal? (make-A 1 2) (make-B 2 1))
+    (test #f equal? (make-A 2 1) (make-B 1 2))
+    (test #f equal? (make-A 1 2) (make-B 1))
+    (test #f equal? (make-A 1 2) (make-B))
+    (test #f equal? (make-A 1) (make-B 1 2))
+    (test #f equal? (make-A) (make-B 1 2)))
+
+  (define (int-hash . numbers)
+    (define ht (make-custom-hash int=? int-hc int-hc2))
+    (for ([number (in-list numbers)])
+      (dict-set! ht number (number->string number)))
+    ht)
+  (define (int-assoc . numbers)
+    (define ht (make-custom-hash int=?))
+    (for ([number (in-list numbers)])
+      (dict-set! ht number (number->string number)))
+    ht)
+
+  (define (weak-int-hash . numbers)
+    (define ht (make-weak-custom-hash int=? int-hc int-hc2))
+    (for ([number (in-list numbers)])
+      (dict-set! ht number (number->string number)))
+    (collect-garbage)
+    ht)
+  (define (weak-int-assoc . numbers)
+    (define ht (make-weak-custom-hash int=?))
+    (for ([number (in-list numbers)])
+      (dict-set! ht number (number->string number)))
+    (collect-garbage)
+    ht)
+
+  (define (immutable-int-hash . numbers)
+    (for/fold
+        ([ht (make-immutable-custom-hash int=? int-hc int-hc2)])
+        ([number (in-list numbers)])
+      (dict-set ht number (number->string number))))
+  (define (immutable-int-assoc . numbers)
+    (for/fold
+        ([ht (make-immutable-custom-hash int=?)])
+        ([number (in-list numbers)])
+      (dict-set ht number (number->string number))))
+
+  (test-custom-hash int-hash int-assoc)
+  (test-custom-hash weak-int-hash weak-int-assoc)
+  (test-custom-hash immutable-int-hash immutable-int-assoc))
+
 ;; ----------------------------------------
 
 (report-errs)

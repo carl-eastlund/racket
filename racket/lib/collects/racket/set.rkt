@@ -1,506 +1,1377 @@
 #lang racket/base
 (require (for-syntax racket/base
+                     racket/syntax
                      syntax/for-body)
          racket/serialize
          racket/pretty
          racket/contract/base
          racket/contract/combinator
+         racket/generic
+         racket/stream
          (only-in "private/for.rkt" prop:stream))
 
-(provide set seteq seteqv
-         set? set-eq? set-eqv? set-equal?
-         set-empty? set-count
-         set-member? set-add set-remove
-         set-first set-rest
-         set-union set-intersect set-subtract set-symmetric-difference
-         subset? proper-subset?
-         set-map set-for-each 
-         (rename-out [*in-set in-set])
-         for/set for/seteq for/seteqv
-         for*/set for*/seteq for*/seteqv
-         (rename-out [*set/c set/c])
-         set=?
-         set->list
-         list->set list->seteq list->seteqv)
+(provide
 
-(define-serializable-struct set (ht)
-  #:omit-define-syntaxes
-  #:property prop:custom-print-quotable 'never
-  #:property prop:custom-write
-  (lambda (s port mode)
-    (define recur-print (cond
-                         [(not mode) display]
-                         [(integer? mode) (lambda (p port) (print p port mode))]
-                         [else write]))
-    (define (print-prefix port)
-      (cond
-        [(equal? 0 mode)
-         (write-string "(set" port)
-         (print-prefix-id port)]
-        [else
-         (write-string "#<set" port)
-         (print-prefix-id port)
-         (write-string ":" port)]))
-    (define (print-prefix-id port)
-      (cond
-        [(set-equal? s) (void)]
-        [(set-eqv? s) (write-string "eqv" port)]
-        [(set-eq? s) (write-string "eq" port)]))
-    (define (print-suffix port)
-      (if (equal? 0 mode)
-          (write-string ")" port)
-          (write-string ">" port)))
-    (define (print-one-line port)
-      (print-prefix port)
-      (set-for-each s 
-                    (lambda (e) 
-                      (write-string " " port)
-                      (recur-print e port)))
-      (print-suffix port))
-    (define (print-multi-line port)
-      (let-values ([(line col pos) (port-next-location port)])
-        (print-prefix port)
-        (set-for-each s 
-                      (lambda (e) 
-                        (pretty-print-newline port (pretty-print-columns))
-                        (write-string (make-string (add1 col) #\space) port)
-                        (recur-print e port)))
-        (print-suffix port)))
-    (cond
-     [(and (pretty-printing)
-           (integer? (pretty-print-columns)))
-      ((let/ec esc
-         (letrec ([tport (make-tentative-pretty-print-output-port
-                          port
-                          (- (pretty-print-columns) 1)
-                          (lambda () 
-                            (esc
-                             (lambda ()
-                               (tentative-pretty-print-port-cancel tport)
-                               (print-multi-line port)))))])
-           (print-one-line tport)
-           (tentative-pretty-print-port-transfer tport port))
-         void))]
-     [else (print-one-line port)]))
-  #:property prop:equal+hash (list 
-                              (lambda (set1 set2 =?)
-                                (=? (set-ht set1) (set-ht set2)))
-                              (lambda (set hc) (add1 (hc (set-ht set))))
-                              (lambda (set hc) (add1 (hc (set-ht set)))))
-  #:property prop:sequence (lambda (v) (*in-set v))
-  #:property prop:stream (vector (lambda (s) (set-empty? s))
-                                 (lambda (s) (set-first s))
-                                 (lambda (s) (set-rest s))))
+  gen:set set?
 
-;; Not currently exporting this because I'm not sure whether this is the right semantics
-;; for it yet, but it follows most closely the semantics of the old set/c implementation
-;; (while still returning a chaperone).
-(define (chaperone-set s elem-chaperone)
-  (when (or (set-eq? s)
-            (set-eqv? s))
-    (raise-argument-error 'chaperone-set "(and/c set? set-equal?)" s))
-  (chaperone-struct s
-                    set-ht
-                    (let ([cached-ht #f])
-                      (λ (st ht)
-                        (if cached-ht cached-ht
-                            (let ([new-ht (make-immutable-hash
-                                           (hash-map ht (λ (k v)
-                                                          ;; should be a check of the return here,
-                                                          ;; but until this is exported, it's only
-                                                          ;; used by set/c, which is sure to pass
-                                                          ;; a chaperone-respecting function.
-                                                          (cons (elem-chaperone s k) v))))])
-                              (set! cached-ht new-ht)
-                              new-ht))))))
+  set-count
+  set-member?
+  set->stream
+  set-add
+  set-remove
+  set-clear
+  set-add!
+  set-remove!
+  set-clear!
 
-(define (set . elems)
-  (make-set (make-immutable-hash (map (lambda (k) (cons k #t)) elems))))
-(define (seteq . elems)
-  (make-set (make-immutable-hasheq (map (lambda (k) (cons k #t)) elems))))
-(define (seteqv . elems)
-  (make-set (make-immutable-hasheqv (map (lambda (k) (cons k #t)) elems))))
+  set-clear-supported?
+  set-add-supported?
+  set-remove-supported?
+  set-clear!-supported?
+  set-add!-supported?
+  set-remove!-supported?
 
-(define (set-eq? set)
-  (unless (set? set) (raise-argument-error 'set-eq? "set?" 0 set))
-  (hash-eq? (set-ht set)))
-(define (set-eqv? set)
-  (unless (set? set) (raise-argument-error 'set-eqv? "set?" 0 set))
-  (hash-eqv? (set-ht set)))
-(define (set-equal? set)
-  (unless (set? set) (raise-argument-error 'set-equal? "set?" 0 set))
-  (let* ([ht (set-ht set)])
-    (not (or (hash-eq? ht)
-             (hash-eqv? ht)))))
+  set-empty?
+  set-first
+  set-rest
+  set-copy
+  set-map
+  set-for-each
+  set->list
+  set=?
+  subset?
+  proper-subset?
+  set-union
+  set-intersect
+  set-subtract
+  set-symmetric-difference
+  simple-set-union
+  simple-set-intersect
+  simple-set-subtract
+  simple-set-symmetric-difference
+  set-union!
+  set-intersect!
+  set-subtract!
+  set-symmetric-difference!
+  simple-set-union!
+  simple-set-intersect!
+  simple-set-subtract!
+  simple-set-symmetric-difference!
 
-(define (set-empty? set)
-  (unless (set? set) (raise-argument-error 'set-empty? "set?" 0 set))
-  (zero? (hash-count (set-ht set))))
+  in-set
+  (rename-out [make-set-contract set/c])
 
-(define (set-count set)
-  (unless (set? set) (raise-argument-error 'set-count "set?" 0 set))
-  (hash-count (set-ht set)))
+  set-equal?
+  set list->set for/set for*/set
+  mutable-set list->mutable-set for/mutable-set for*/mutable-set
+  weak-set list->weak-set for/weak-set for*/weak-set
 
-(define (set-member? set v)
-  (unless (set? set) (raise-argument-error 'set-member? "set?" 0 set v))
-  (hash-ref (set-ht set) v #f))
+  set-eq?
+  seteq list->seteq for/seteq for*/seteq
+  mutable-seteq list->mutable-seteq for/mutable-seteq for*/mutable-seteq
+  weak-seteq list->weak-seteq for/weak-seteq for*/weak-seteq
 
-(define (set-add set v)
-  (unless (set? set) (raise-argument-error 'set-add "set?" 0 set v))
-  (make-set (hash-set (set-ht set) v #t)))
+  set-eqv?
+  seteqv list->seteqv for/seteqv for*/seteqv
+  mutable-seteqv list->mutable-seteqv for/mutable-seteqv for*/mutable-seteqv
+  weak-seteqv list->weak-seteqv for/weak-seteqv for*/weak-seteqv
 
-(define (set-remove set v)
-  (unless (set? set) (raise-argument-error 'set-remove "set?" 0 set v))
-  (make-set (hash-remove (set-ht set) v)))
+  make-custom-set
+  make-mutable-custom-set
+  make-weak-custom-set)
 
-(define (check-same-equiv who set set2 ht ht2)
-  (unless (and (eq? (hash-eq? ht) (hash-eq? ht2))
-               (eq? (hash-eqv? ht) (hash-eqv? ht2)))
-    (raise-arguments-error who
-                           "second set's equivalence predicate is not the same as the first set's"
-                           "first set" set
-                           "second set" set2)))
-
-(define set-union
-  (case-lambda
-   ;; No 0 argument set exists because its not clear what type of set
-   ;; to return. A keyword is unsatisfactory because it may be hard to
-   ;; remember. A simple solution is just to provide the type of the
-   ;; empty set that you want, like (set-union (set)) or
-   ;; (set-union (set-eqv))
-   ;; [() (set)]
-   [(set) 
-    (unless (set? set) (raise-argument-error 'set-union "set?" 0 set))
-    set]
-   [(set set2)
-    (unless (set? set) (raise-argument-error 'set-union "set?" 0 set set2))
-    (unless (set? set2) (raise-argument-error 'set-union "set?" 1 set set2))
-    (let ([ht (set-ht set)]
-          [ht2 (set-ht set2)])
-      (check-same-equiv 'set-union set set2 ht ht2)
-      (let-values ([(ht ht2)
-                    (if ((hash-count ht2) . > . (hash-count ht))
-                        (values ht2 ht)
-                        (values ht ht2))])
-        (make-set
-         (for/fold ([ht ht]) ([v (in-hash-keys ht2)])
-           (hash-set ht v #t)))))]
-   [(set . sets)
-    (for ([s (in-list (cons set sets))]
-          [i (in-naturals)])
-      (unless (set? s) (apply raise-argument-error 'set-union "set?" i (cons set sets))))
-    (for/fold ([set set]) ([set2 (in-list sets)])
-      (set-union set set2))]))
-
-(define (empty-like ht)
+(define (supported? set sym)
   (cond
-   [(hash-eqv? ht) #hasheqv()]
-   [(hash-eq? ht) #hasheq()]
-   [else #hash()]))
+    [(list? set) #f]
+    [else (hash-ref (set-supported set) sym)]))
 
-(define set-intersect
-  (case-lambda
-   [(set) 
-    (unless (set? set) (raise-argument-error 'set-intersect "set?" 0 set))
-    set]
-   [(set set2)
-    (unless (set? set) (raise-argument-error 'set-intersect "set?" 0 set set2))
-    (unless (set? set2) (raise-argument-error 'set-intersect "set?" 1 set set2))
-    (let ([ht1 (set-ht set)]
-          [ht2 (set-ht set2)])
-      (check-same-equiv 'set-intersect set set2 ht1 ht2)
-      (let-values ([(ht1 ht2) (if ((hash-count ht1) . < . (hash-count ht2))
-                                  (values ht1 ht2)
-                                  (values ht2 ht1))])
-        (make-set
-         (for/fold ([ht (empty-like (set-ht set))]) ([v (in-hash-keys ht1)])
-           (if (hash-ref ht2 v #f)
-               (hash-set ht v #t)
-               ht)))))]
-   [(set . sets)
-    (for ([s (in-list (cons set sets))]
-          [i (in-naturals)])
-      (unless (set? s) (apply raise-argument-error 'set-intersect "set?" i (cons set sets))))
-    (for/fold ([set set]) ([set2 (in-list sets)])
-      (set-intersect set set2))]))
+(define (set-clear-supported? s)
+  (or (list? s) (supported? 'set-clear)))
 
-(define set-subtract
-  (case-lambda
-   [(set) 
-    (unless (set? set) (raise-argument-error 'set-subtract "set?" 0 set))
-    set]
-   [(set set2)
-    (unless (set? set) (raise-argument-error 'set-subtract "set?" 0 set set2))
-    (unless (set? set2) (raise-argument-error 'set-subtract "set?" 1 set set2))
-    (let ([ht1 (set-ht set)]
-          [ht2 (set-ht set2)])
-      (check-same-equiv 'set-subtract set set2 ht1 ht2)
-      (if ((* 2 (hash-count ht1)) . < . (hash-count ht2))
-          ;; Add elements from ht1 that are not in ht2:
-          (make-set
-           (for/fold ([ht (empty-like ht1)]) ([v (in-hash-keys ht1)])
-             (if (hash-ref ht2 v #f)
-                 ht
-                 (hash-set ht v #t))))
-          ;; Remove elements from ht1 that are in ht2
-          (make-set
-           (for/fold ([ht ht1]) ([v (in-hash-keys ht2)])
-             (hash-remove ht v)))))]
-   [(set . sets)
-    (for ([s (in-list (cons set sets))]
-          [i (in-naturals)])
-      (unless (set? s) (apply raise-argument-error 'set-subtract "set?" i (cons s sets))))
-    (for/fold ([set set]) ([set2 (in-list sets)])
-      (set-subtract set set2))]))
+(define (set-add-supported? s)
+  (or (list? s) (supported? s 'set-add)))
 
-(define (subset* who set2 set1 proper?)
-  (unless (set? set2) (raise-argument-error who "set?" 0 set2 set1))
-  (unless (set? set1) (raise-argument-error who "set?" 0 set2 set1))
-  (let ([ht1 (set-ht set1)]
-        [ht2 (set-ht set2)])
-    (check-same-equiv who set set2 ht1 ht2)
-    (and (for/and ([v (in-hash-keys ht2)])
-           (hash-ref ht1 v #f))
-         (if proper?
-             (< (hash-count ht2) (hash-count ht1))
-             #t))))
+(define (set-remove-supported? s)
+  (or (list? s) (supported? s 'set-remove)))
 
-(define (subset? one two)
-  (subset* 'subset? one two #f))
+(define (set-clear!-supported? s)
+  (and (not (list? s)) (supported? 'set-clear!)))
 
-(define (proper-subset? one two)
-  (subset* 'proper-subset? one two #t))
+(define (set-add!-supported? s)
+  (and (not (list? s)) (supported? s 'set-add!)))
 
-(define (set-first set)
-  (unless (set? set) (raise-argument-error 'set-first "set?" set))
-  (define ht (set-ht set))
-  (if (zero? (hash-count ht))
-      (raise-arguments-error 'set-first "given set is empty")
-      (hash-iterate-key ht (hash-iterate-first ht))))
+(define (set-remove!-supported? s)
+  (and (not (list? s)) (supported? s 'set-remove!)))
 
-(define (set-rest set)
-  (unless (set? set) (raise-argument-error 'set-rest "set?" set))
-  (define ht (set-ht set))
-  (if (zero? (hash-count ht))
-      (raise-arguments-error 'set-rest "given set is empty")
-      (make-set (hash-remove ht (hash-iterate-key ht (hash-iterate-first ht))))))
+(define (set-empty?-fallback s)
+  (stream-empty? (set->stream s)))
 
-(define (set-map set proc)
-  (unless (set? set) (raise-argument-error 'set-map "set?" 0 set proc))
-  (unless (and (procedure? proc)
-               (procedure-arity-includes? proc 1))
-    (raise-argument-error 'set-map "(any/c . -> . any/c)" 1 set proc))
-  (for/list ([v (in-set set)])
-    (proc v)))
+(define (set-first-fallback s)
+  (stream-first (set->stream s)))
 
-(define (set-for-each set proc)
-  (unless (set? set) (raise-argument-error 'set-for-each "set?" 0 set proc))
+(define (set-rest-fallback s)
+  (unless (set-remove-supported? s)
+    (raise-argument-error 'set-rest "(and/c set? set-remove-supported?)" 0 s))
+  (set-remove s (set-first s)))
+
+(define (set-for-each-fallback set proc)
   (unless (and (procedure? proc)
                (procedure-arity-includes? proc 1))
     (raise-argument-error 'set-for-each "(any/c . -> . any/c)" 1 set proc))
   (for ([v (in-set set)])
     (proc v)))
 
-(define (in-set set)
-  (unless (set? set) (raise-argument-error 'in-set "set?" 0 set))
-  (in-hash-keys (set-ht set)))
+(define (set-map-fallback set proc)
+  (unless (and (procedure? proc)
+               (procedure-arity-includes? proc 1))
+    (raise-argument-error 'set-map "(any/c . -> . any/c)" 1 set proc))
+  (for/list ([v (in-set set)])
+    (proc v)))
 
-(define-sequence-syntax *in-set
-  (lambda () #'in-set)
+(define (set->list-fallback set)
+  (for/list ([v (in-set set)])
+    v))
+
+(define (subset?-fallback one two)
+  (unless (set? two) (raise-argument-error 'subset? "set?" 1 one two))
+  (for/and ([v (in-set one)])
+    (set-member? two v)))
+
+(define (set=?-fallback one two)
+  (unless (set? two) (raise-argument-error 'set=? "set?" 1 one two))
+  (and (subset? one two) (subset? two one)))
+
+(define (proper-subset?-fallback one two)
+  (unless (set? two) (raise-argument-error 'proper-subset? "set?" 1 one two))
+  (and (subset? one two) (not (subset? two one))))
+
+(define (set-copy-fallback s)
+  (unless (and (set-clear-supported? s)
+               (set-add!-supported? s))
+    (define str "(and/c set? set-clear-supported? set-add!-supported?)")
+    (raise-argument-error 'set-copy str 0 s))
+  (define s2 (set-clear s))
+  (for ([v (in-set s)])
+    (set-add! s2 v))
+  s2)
+
+(define (simple-set-union-fallback one two)
+  (unless (set-add-supported? one)
+    (define str "(and/c set? set-add-supported?)")
+    (raise-argument-error 'set-union str 0 one two))
+  (unless (set? two) (raise-argument-error 'set-union "set?" 1 one two))
+  (for/fold ([s one]) ([v (in-set two)])
+    (set-add s v)))
+
+(define set-union
+  (case-lambda
+    [(s)
+     (unless (set? s) (raise-argument-error 'set-union "set?" 0 s))
+     s]
+    [(one two)
+     (unless (set? one) (raise-argument-error 'set-union? "set?" 0 one two))
+     (unless (set? two) (raise-argument-error 'set-union? "set?" 1 one two))
+     (simple-set-union one two)]
+    [(s . sets)
+     (unless (set? s) (apply raise-argument-error 'set-union "set?" 0 s sets))
+     (for/fold ([s1 s]) ([s2 (in-list sets)] [i (in-naturals 1)])
+       (unless (set? s2)
+         (apply raise-argument-error 'set-union "set?" i s sets))
+       (simple-set-union s1 s2))]))
+
+(define (simple-set-union!-fallback one two)
+  (unless (set-add!-supported? one)
+    (define str "(and/c set? set-add!-supported?)")
+    (raise-argument-error 'set-union! str 0 one two))
+  (unless (set? two) (raise-argument-error 'set-union! "set?" 1 one two))
+  (for ([v (in-set two)])
+    (set-add! one v)))
+
+(define set-union!
+  (case-lambda
+    [(s)
+     (unless (set? s) (raise-argument-error 'set-union! "set?" 0 s))
+     s]
+    [(one two)
+     (unless (set? one) (raise-argument-error 'set-union!? "set?" 0 one two))
+     (unless (set? two) (raise-argument-error 'set-union!? "set?" 1 one two))
+     (simple-set-union! one two)]
+    [(s . sets)
+     (unless (set? s) (apply raise-argument-error 'set-union! "set?" 0 s sets))
+     (for ([s2 (in-list sets)] [i (in-naturals 1)])
+       (unless (set? s2)
+         (apply raise-argument-error 'set-union! "set?" i s sets))
+       (simple-set-union! s s2))]))
+
+(define (simple-set-intersect-fallback one two)
+  (unless (set-remove-supported? one)
+    (define str "(and/c set? set-remove-supported?)")
+    (raise-argument-error 'set-intersect str 0 one two))
+  (unless (set? two) (raise-argument-error 'set-intersect "set?" 1 one two))
+  (for/fold ([s one]) ([v (in-set one)])
+    (if (set-member? two v)
+        s
+        (set-remove s v))))
+
+(define set-intersect
+  (case-lambda
+    [(s)
+     (unless (set? s) (raise-argument-error 'set-intersect "set?" 0 s))
+     s]
+    [(one two)
+     (unless (set? one) (raise-argument-error 'set-intersect? "set?" 0 one two))
+     (unless (set? two) (raise-argument-error 'set-intersect? "set?" 1 one two))
+     (simple-set-intersect one two)]
+    [(s . sets)
+     (unless (set? s)
+       (apply raise-argument-error 'set-intersect "set?" 0 s sets))
+     (for/fold ([s1 s]) ([s2 (in-list sets)] [i (in-naturals 1)])
+       (unless (set? s2)
+         (apply raise-argument-error 'set-intersect "set?" i s sets))
+       (simple-set-intersect s1 s2))]))
+
+(define (simple-set-intersect!-fallback one two)
+  (unless (set-remove!-supported? one)
+    (define str "(and/c set? set-remove!-supported?)")
+    (raise-argument-error 'set-intersect! str 0 one two))
+  (unless (set? two) (raise-argument-error 'set-intersect! "set?" 1 one two))
+  ;; Cannot remove from one as we traverse one,
+  ;; as it might interfere with the iteration.
+  (define to-remove
+    (for/list ([v (in-set one)] #:unless (set-member? two v))
+      v))
+  (for ([v (in-list to-remove)])
+    (set-remove! one v)))
+
+(define set-intersect!
+  (case-lambda
+    [(s)
+     (unless (set? s) (raise-argument-error 'set-intersect! "set?" 0 s))
+     s]
+    [(one two)
+     (unless (set? one)
+       (raise-argument-error 'set-intersect!? "set?" 0 one two))
+     (unless (set? two)
+       (raise-argument-error 'set-intersect!? "set?" 1 one two))
+     (simple-set-intersect! one two)]
+    [(s . sets)
+     (unless (set? s)
+       (apply raise-argument-error 'set-intersect! "set?" 0 s sets))
+     (for ([s2 (in-list sets)] [i (in-naturals 1)])
+       (unless (set? s2)
+         (apply raise-argument-error 'set-intersect! "set?" i s sets))
+       (simple-set-intersect! s s2))]))
+
+(define (simple-set-subtract-fallback one two)
+  (unless (set-remove-supported? one)
+    (define str "(and/c set? set-remove-supported?)")
+    (raise-argument-error 'set-subtract str 0 one two))
+  (unless (set? two) (raise-argument-error 'set-subtract "set?" 1 one two))
+  (for/fold ([s one]) ([v (in-set two)])
+    (set-remove s v)))
+
+(define set-subtract
+  (case-lambda
+    [(s)
+     (unless (set? s) (raise-argument-error 'set-subtract "set?" 0 s))
+     s]
+    [(one two)
+     (unless (set? one) (raise-argument-error 'set-subtract? "set?" 0 one two))
+     (unless (set? two) (raise-argument-error 'set-subtract? "set?" 1 one two))
+     (simple-set-subtract one two)]
+    [(s . sets)
+     (unless (set? s)
+       (apply raise-argument-error 'set-subtract "set?" 0 s sets))
+     (for/fold ([s1 s]) ([s2 (in-list sets)] [i (in-naturals 1)])
+       (unless (set? s2)
+         (apply raise-argument-error 'set-subtract "set?" i s sets))
+       (simple-set-subtract s1 s2))]))
+
+(define (simple-set-subtract!-fallback one two)
+  (unless (set-remove!-supported? one)
+    (define str "(and/c set? set-remove!-supported?)")
+    (raise-argument-error 'set-subtract! str 0 one two))
+  (unless (set? two) (raise-argument-error 'set-subtract! "set?" 1 one two))
+  (for ([v (in-set two)])
+    (set-remove! one v)))
+
+(define set-subtract!
+  (case-lambda
+    [(s)
+     (unless (set? s) (raise-argument-error 'set-subtract! "set?" 0 s))
+     s]
+    [(one two)
+     (unless (set? one) (raise-argument-error 'set-subtract!? "set?" 0 one two))
+     (unless (set? two) (raise-argument-error 'set-subtract!? "set?" 1 one two))
+     (simple-set-subtract! one two)]
+    [(s . sets)
+     (unless (set? s)
+       (apply raise-argument-error 'set-subtract! "set?" 0 s sets))
+     (for ([s2 (in-list sets)] [i (in-naturals 1)])
+       (unless (set? s2)
+         (apply raise-argument-error 'set-subtract! "set?" i s sets))
+       (simple-set-subtract! s s2))]))
+
+(define (simple-set-symmetric-difference-fallback one two)
+  (unless (and (set-add-supported? one)
+               (set-remove-supported? one))
+    (define str "(and/c set? set-add-supported? set-remove-supported?)")
+    (raise-argument-error 'set-symmetric-difference str 0 one two))
+  (unless (set? two)
+    (raise-argument-error 'set-symmetric-difference "set?" 1 one two))
+  (for/fold ([s one]) ([v (in-set two)])
+    (if (set-member? s v)
+        (set-remove s v)
+        (set-add s v))))
+
+(define set-symmetric-difference
+  (case-lambda
+    [(s)
+     (unless (set? s)
+       (raise-argument-error 'set-symmetric-difference "set?" 0 s))
+     s]
+    [(one two)
+     (unless (set? one)
+       (raise-argument-error 'set-symmetric-difference? "set?" 0 one two))
+     (unless (set? two)
+       (raise-argument-error 'set-symmetric-difference? "set?" 1 one two))
+     (simple-set-symmetric-difference one two)]
+    [(s . sets)
+     (unless (set? s)
+       (apply raise-argument-error 'set-symmetric-difference "set?" 0 s sets))
+     (for/fold ([s1 s]) ([s2 (in-list sets)] [i (in-naturals 1)])
+       (unless (set? s2)
+         (apply raise-argument-error 'set-symmetric-difference "set?" i s sets))
+       (simple-set-symmetric-difference s1 s2))]))
+
+(define (simple-set-symmetric-difference!-fallback one two)
+  (unless (and (set-add!-supported? one)
+               (set-remove!-supported? one))
+    (define str "(and/c set? set-add!-supported? set-remove!-supported?)")
+    (raise-argument-error 'set-symmetric-difference! str 0 one two))
+  (unless (set? two)
+    (raise-argument-error 'set-symmetric-difference! "set?" 1 one two))
+  (for ([v (in-set two)])
+    (if (set-member? one v)
+        (set-remove! one v)
+        (set-add! one v))))
+
+(define set-symmetric-difference!
+  (case-lambda
+    [(s)
+     (unless (set? s)
+       (raise-argument-error 'set-symmetric-difference! "set?" 0 s))
+     s]
+    [(one two)
+     (unless (set? one)
+       (raise-argument-error 'set-symmetric-difference!? "set?" 0 one two))
+     (unless (set? two)
+       (raise-argument-error 'set-symmetric-difference!? "set?" 1 one two))
+     (simple-set-symmetric-difference! one two)]
+    [(s . sets)
+     (unless (set? s)
+       (apply raise-argument-error 'set-symmetric-difference! "set?" 0 s sets))
+     (for ([s2 (in-list sets)] [i (in-naturals 1)])
+       (unless (set? s2)
+         (define sym 'set-symmetric-difference!)
+         (apply raise-argument-error sym "set?" i s sets))
+       (simple-set-symmetric-difference! s s2))]))
+
+(define-generics set
+  #:defined-table set-supported
+  (set-count set)
+  (set-member? set x)
+  (set-add set x)
+  (set-remove set x)
+  (set-clear set)
+  (set-add! set x)
+  (set-remove! set x)
+  (set-clear! set)
+  (set->stream set)
+  (set-empty? set)
+  (set-first set)
+  (set-rest set)
+  (set-copy set)
+  (set-map set proc)
+  (set-for-each set proc)
+  (set->list set)
+  (set=? set set2)
+  (subset? set set2)
+  (proper-subset? set set2)
+  (simple-set-union set set2)
+  (simple-set-intersect set set2)
+  (simple-set-subtract set set2)
+  (simple-set-symmetric-difference set set2)
+  (simple-set-union! set set2)
+  (simple-set-intersect! set set2)
+  (simple-set-subtract! set set2)
+  (simple-set-symmetric-difference! set set2)
+  #:defaults
+  ([list?
+    (define set-count length)
+    (define (set-member? lst x) (if (member x lst) #t #f))
+    (define (set-add lst x) (if (member x lst) lst (cons x lst)))
+    (define (set-remove lst x) (remove* (list x) lst))
+    (define (set-clear lst) '())
+    (define set->stream values)
+    (define set-empty? null?)
+    (define set-first car)
+    (define set-rest cdr)
+    (define (set-map lst proc) (map proc lst))
+    (define (set-for-each lst proc) (for-each proc lst))
+    (define set->list values)])
+  #:fallbacks
+  [(define set-empty? set-empty?-fallback)
+   (define set-first set-first-fallback)
+   (define set-rest set-rest-fallback)
+   (define set-copy set-copy-fallback)
+   (define set-map set-map-fallback)
+   (define set-for-each set-for-each-fallback)
+   (define set->list set->list-fallback)
+   (define set=? set=?-fallback)
+   (define subset? subset?-fallback)
+   (define proper-subset? proper-subset?-fallback)
+   (define simple-set-union simple-set-union-fallback)
+   (define simple-set-intersect simple-set-intersect-fallback)
+   (define simple-set-subtract simple-set-subtract-fallback)
+   (define simple-set-symmetric-difference
+     simple-set-symmetric-difference-fallback)
+   (define simple-set-union! simple-set-union!-fallback)
+   (define simple-set-intersect! simple-set-intersect!-fallback)
+   (define simple-set-subtract! simple-set-subtract!-fallback)
+   (define simple-set-symmetric-difference!
+     simple-set-symmetric-difference!-fallback)])
+
+(define (generic-set/c c)
+  (define set-of-c (recursive-contract (make-set-contract c) #:chaperone))
+  (set/c
+    [set-count (-> set? exact-nonnegative-integer?)]
+    [set-member? (-> set? c boolean?)]
+    [set-add (-> set? c set-of-c)]
+    [set-remove (-> set? c set-of-c)]
+    [set-clear (-> set? set-of-c)]
+    [set-add! (-> set? c void?)]
+    [set-remove! (-> set? c void?)]
+    [set-clear! (-> set? set-of-c)]
+    [set->stream (-> set? stream?)]
+    [set-first (-> set? c)]
+    [set-rest (-> set? set-of-c)]
+    [set-copy (-> set? set-of-c)]
+    [set-map (-> set? (-> c any/c) list?)]
+    [set-for-each (-> set? (-> c any) any)]
+    [set->list (-> set? (listof c))]
+    [set=? (-> set? set-of-c boolean?)]
+    [subset? (-> set? set-of-c boolean?)]
+    [proper-subset? (-> set? set-of-c boolean?)]
+    [simple-set-union (-> set? set-of-c set-of-c)]
+    [simple-set-intersect (-> set? set-of-c set-of-c)]
+    [simple-set-subtract (-> set? set-of-c set-of-c)]
+    [simple-set-symmetric-difference (-> set? set-of-c set-of-c)]
+    [simple-set-union! (-> set? set-of-c void?)]
+    [simple-set-intersect! (-> set? set-of-c void?)]
+    [simple-set-subtract! (-> set? set-of-c void?)]
+    [simple-set-symmetric-difference! (-> set? set-of-c void?)]))
+
+(define-sequence-syntax in-set
+  (lambda () #'in-set/proc)
   (lambda (stx)
-    (syntax-case stx (set)
-      ;; Set construction is costly, so specialize empty/singleton cases
-      [[(id) (_ (set))] #'[(id) (:do-in ([(id) #f]) #t () #f () #f #f ())]]
-      [[(id) (_ (set expr))] #'[(id) (:do-in ([(id) expr]) #t () #t () #t #f ())]]
-      [[(id) (_ st)]
-       #`[(id)
-          (:do-in
-           ;; outer bindings:
-           ([(ht) (let ([s st]) (if (set? s) (set-ht s) (list s)))])
-           ;; outer check:
-           (unless (hash? ht)
-             ;; let `in-set' report the error:
-             (in-set (car ht)))
-           ;; loop bindings:
-           ([pos (hash-iterate-first ht)])
-           ;; pos check
-           pos
-           ;; inner bindings
-           ([(id) (hash-iterate-key ht pos)])
-           ;; pre guard
-           #t
-           ;; post guard
-           #t
-           ;; loop args
-           ((hash-iterate-next ht pos)))]])))
+    (syntax-case stx ()
+      [[(id) (_ s)]
+       #'[(id) (in-stream (set->stream s))]])))
 
-(define-syntax-rule (define-for for/fold/derived for/set set)
-  (define-syntax (for/set stx)
-    (...
-     (syntax-case stx ()
-       [(_ bindings . body)
-        (with-syntax ([((pre-body ...) post-body) (split-for-body stx #'body)])
-          (quasisyntax/loc stx
-            (for/fold/derived #,stx ([s (set)]) bindings pre-body ... (set-add s (let () . post-body)))))]))))
+(define in-set/proc
+  (procedure-rename
+    (lambda (s)
+      (unless (set? s) (raise-argument-error 'in-set "set?" 0 s))
+      (set->stream s))
+    'in-set))
 
-(define-for for/fold/derived for/set set)
-(define-for for*/fold/derived for*/set set)
-(define-for for/fold/derived for/seteq seteq)
-(define-for for*/fold/derived for*/seteq seteq)
-(define-for for/fold/derived for/seteqv seteqv)
-(define-for for*/fold/derived for*/seteqv seteqv)
-
-(define (get-pred a-set/c)
-  (case (set/c-cmp a-set/c)
-    [(dont-care) set?]
-    [(eq) set-eq?]
-    [(eqv) set-eqv?]
-    [(equal) set-equal?]))
-
-(define (get-name a-set/c)
-  (case (set/c-cmp a-set/c)
-    [(dont-care) 'set]
-    [(eq) 'set-eq]
-    [(eqv) 'set-eqv]
-    [(equal) 'set-equal]))
-
-(define *set/c
-  (let ()
-    (define (set/c ctc #:cmp [cmp 'dont-care])
+(define make-set-contract
+  (procedure-rename
+    (lambda (ctc #:cmp [cmp 'dont-care])
       (unless (memq cmp '(dont-care equal eq eqv))
         (raise-argument-error 'set/c 
                               "(or/c 'dont-care 'equal? 'eq? 'eqv)" 
                               cmp))
       (cond
         [(flat-contract? ctc)
-         (flat-set/c ctc cmp (flat-contract-predicate ctc))]
+         (flat-set/c ctc cmp)]
         [(chaperone-contract? ctc)
          (if (memq cmp '(eq eqv))
-             (raise-argument-error 'set/c
-                                   "flat-contract?"
-                                   ctc)
-             (make-set/c ctc cmp))]
+             (raise-arguments-error
+               'set/c
+               "given contract must be a flat contract if comparison is 'eq or 'eqv"
+               "given contract" ctc
+               "comparison" cmp)
+             (chaperone-set/c ctc cmp))]
         [else
-         (raise-argument-error 'set/c
-                               "chaperone-contract?"
-                               ctc)]))
-    set/c))
+         (raise-argument-error 'set/c "chaperone-contract?" ctc)]))
+    'set/c))
 
-(define (set/c-name c)
-  `(set/c ,(contract-name (set/c-ctc c))
-          ,@(if (eq? (set/c-cmp c) 'dont-care)
-                '()
-                `(#:cmp ',(set/c-cmp c)))))
+(struct set-contract [ctc cmp])
 
-(define (set/c-stronger this that)
-  (and (set/c? that)
-       (or (eq? (set/c-cmp this)
-                (set/c-cmp that))
-           (eq? (set/c-cmp that) 'dont-care))
-       (contract-stronger? (set/c-ctc this)
-                           (set/c-ctc that))))
+(define (set-contract-name c)
+  (define ctc (set-contract-ctc c))
+  (define cmp (set-contract-cmp c))
+  (define suffix
+    (case cmp
+      [(eq) '(#:cmp (quote eq))]
+      [(eqv) '(#:cmp (quote eqv))]
+      [(equal) '(#:cmp (quote equal))]
+      [(dont-care) '()]))
+  (define prefix
+    (contract-name ctc))
+  `(set/c ,prefix ,@suffix))
 
-(define (check-set/c ctc)
-  (let ([elem-ctc (set/c-ctc ctc)]
-        [pred (get-pred ctc)]
-        [name (get-name ctc)])
-    (λ (val fail [first-order? #f])
-      (unless (pred val)
-        (fail '(expected: "~a" given: "~e") name val))
-      (when first-order?
-        (for ([e (in-set val)])
-          (unless (contract-first-order-passes? elem-ctc e)
-            (fail '(expected: "~a" given: "~e") (contract-name elem-ctc) e))))
-      #t)))
+(define (set-contract-first-order c)
+  (define ctc (set-contract-ctc c))
+  (define cmp (set-contract-cmp c))
+  (define pred (contract-first-order ctc))
+  (lambda (x)
+    (and (set? x)
+         (case cmp
+           [(eq) (set-eq? x)]
+           [(eqv) (set-eqv? x)]
+           [(equal) (set-equal? x)]
+           [(dont-care) #t])
+         (for/and ([v (in-set x)])
+           (pred v)))))
 
-(define (set/c-first-order ctc)
-  (let ([check (check-set/c ctc)])
-    (λ (val)
-      (let/ec return
-        (check val (λ _ (return #f)) #t)))))
+(define (set-contract-stronger one two)
+  (define ctc1 (set-contract-ctc one))
+  (define ctc2 (set-contract-ctc two))
+  (define cmp1 (set-contract-cmp one))
+  (define cmp2 (set-contract-cmp two))
+  (and (or (eq? cmp1 cmp2) (eq? cmp2 'dont-care))
+       (contract-stronger? ctc1 ctc2)))
 
-(define (set/c-proj c)
-  (let ([proj (contract-projection (set/c-ctc c))]
-        [check (check-set/c c)])
-    (λ (blame)
-      (let ([pb (proj blame)])
-        (λ (s)
-          (check s (λ args (apply raise-blame-error blame s args)))
-          (chaperone-set s (λ (s v) (pb v))))))))
+(define (set-contract-projection c)
+  (define ctc (set-contract-ctc c))
+  (define cmp (set-contract-cmp c))
+  (lambda (b)
+    (define (check pred x msg)
+      (unless (pred x)
+        (raise-blame-error b x '(expected: "~a" given: "~v") msg x)))
+    (lambda (x)
+      (check set? x "a set")
+      (case cmp
+        [(eq) (check set-eq? x "an eq?-based set")]
+        [(eqv) (check set-eqv? x "an eqv?-based set")]
+        [(equal) (check set-equal? x "an equal?-based set")])
+      (if (list? x)
+          (((contract-projection (listof ctc)) b) x)
+          (((contract-projection (generic-set/c ctc)) b) x)))))
 
-(define-struct set/c (ctc cmp)
+(define (set-contract-flat-projection c)
+  (define ctc (set-contract-ctc c))
+  (define cmp (set-contract-cmp c))
+  (lambda (b)
+    (define (check pred x msg)
+      (unless (pred x)
+        (raise-blame-error b x '(expected: "~a" given: "~v") msg x)))
+    (lambda (x)
+      (check set? x "a set")
+      (case cmp
+        [(eq) (check set-eq? x "an eq?-based set")]
+        [(eqv) (check set-eqv? x "an eqv?-based set")]
+        [(equal) (check set-equal? x "an equal?-based set")])
+      (if (list? x)
+          (((contract-projection (listof ctc)) b) x)
+          (begin
+            (for ([v (in-set x)])
+              (((contract-projection ctc) b) v))
+            x)))))
+
+(struct flat-set/c set-contract []
+  #:property prop:flat-contract
+  (build-flat-contract-property
+    #:name set-contract-name
+    #:first-order set-contract-first-order
+    #:stronger set-contract-stronger
+    #:projection set-contract-flat-projection))
+
+(struct chaperone-set/c set-contract []
   #:property prop:chaperone-contract
-  (build-chaperone-contract-property 
-   #:name set/c-name
-   #:first-order set/c-first-order
-   #:stronger set/c-stronger
-   #:projection set/c-proj))
+  (build-chaperone-contract-property
+    #:name set-contract-name
+    #:first-order set-contract-first-order
+    #:stronger set-contract-stronger
+    #:projection set-contract-projection))
 
-(define (flat-set/c-proj c)
-  (let ([proj (contract-projection (set/c-ctc c))]
-        [check (check-set/c c)])
-    (λ (blame)
-      (let ([pb (proj blame)])
-        (λ (val)
-          (check val (λ args (apply raise-blame-error blame val args)))
-          (for ([e (in-set val)]) (pb e))
-          val)))))
+;; Easily enabled/disabled debug printing:
+(define-syntax dprintf
+  #;(make-rename-transformer #'eprintf)
+  (lambda (stx) #'(begin)))
 
-(define-values (flat-set/c flat-set/c-pred)
-  (let ()
-    (define-struct (flat-set/c set/c)  (pred)
-      #:property prop:flat-contract
-      (build-flat-contract-property 
-       #:name set/c-name
-       #:first-order set/c-first-order
-       #:stronger set/c-stronger
-       #:projection flat-set/c-proj))
-    (values make-flat-set/c flat-set/c-pred)))
+(define (implement-ht-set name ;; e.g. 'mutable-seteqv
+                          desc ;; e.g. "(and/c set? set-eq?)"
+                          make-ht get-wrap get-unwrap
+                          s? s-ht update-s set-s-ht!
+                          alt1-s? alt1-s-ht alt2-s? alt2-s-ht)
 
-;; ----
+  (define (s-custom-write s port mode)
+    (define ht (s-ht s))
+    (define unwrap (get-unwrap s))
+    (define print-elem
+      (cond
+        [(not mode) display]
+        [(integer? mode) (lambda (e port) (print e port mode))]
+        [else write]))
+    (define (print-prefix port)
+      (cond
+        [(equal? mode 0)
+         (write-string "(" port)
+         (display name port)]
+        [else
+         (write-string "#<" port)
+         (display name port)
+         (write-string ":" port)]))
+    (define (print-suffix port)
+      (cond
+        [(equal? mode 0)
+         (write-string ")" port)]
+        [else
+         (write-string ">" port)]))
+    (define (print-one-line port)
+      (print-prefix port)
+      (for ([k (in-hash-keys ht)])
+        (write-string " " port)
+        (print-elem (unwrap k) port))
+      (print-suffix port))
+    (define (print-multi-line port)
+      (define-values (line col pos) (port-next-location port))
+      (print-prefix port)
+      (for ([k (in-hash-keys ht)])
+        (pretty-print-newline port (pretty-print-columns))
+        (write-string (make-string (add1 col) #\space) port)
+        (print-elem (unwrap k) port))
+      (print-suffix port))
+    (cond
+      [(and (pretty-printing) (integer? (pretty-print-columns)))
+       (define proc
+         (let/ec esc
+           (define tport
+             (make-tentative-pretty-print-output-port
+              port
+              (- (pretty-print-columns) 1)
+              (lambda ()
+                (esc
+                 (lambda ()
+                   (tentative-pretty-print-port-cancel tport)
+                   (print-multi-line port))))))
+           (print-one-line tport)
+           (tentative-pretty-print-port-transfer tport port)
+           void))
+       (proc)]
+      [else (print-one-line port)]))
 
-(define (set=? one two)
-  (unless (set? one) (raise-argument-error 'set=? "set?" 0 one two))
-  (unless (set? two) (raise-argument-error 'set=? "set?" 1 one two))
-  ;; Sets implement prop:equal+hash
-  (equal? one two))
+  (define (s-hash-code s [rec equal-hash-code])
+    (dprintf "(equal-hash-code ~v)\n" s)
+    (rec (s-ht s)))
+  (define (s-count s)
+    (dprintf "(set-count ~v)\n" s)
+    (hash-count (s-ht s)))
+  (define (s-member? s e)
+    (dprintf "(set-member? ~v ~v)\n" s e)
+    (hash-ref (s-ht s) ((get-wrap s) e) #f))
+  (define (s-add s e)
+    (dprintf "(set-add ~v ~v)\n" s e)
+    (update-s s (hash-set (s-ht s) ((get-wrap s) e) #t)))
+  (define (s-add! s e)
+    (dprintf "(set-add! ~v ~v)\n" s e)
+    (hash-set! (s-ht s) ((get-wrap s) e) #t))
+  (define (s-remove s e)
+    (dprintf "(set-remove ~v ~v)\n" s e)
+    (update-s s (hash-remove (s-ht s) ((get-wrap s) e))))
+  (define (s-remove! s e)
+    (dprintf "(set-remove! ~v ~v)\n" s e)
+    (hash-remove! (s-ht s) ((get-wrap s) e)))
+  (define (s->stream s)
+    (dprintf "(set->stream ~v)\n" s)
+    (stream-map (get-unwrap s) (sequence->stream (in-hash-keys (s-ht s)))))
+  (define (s-empty? s)
+    (dprintf "(set-empty? ~v)\n" s)
+    (zero? (hash-count (s-ht s))))
+  (define (s-first s)
+    (dprintf "(set-first ~v)\n" s)
+    (define ht (s-ht s))
+    (define pos (hash-iterate-first ht))
+    (unless pos
+      (raise-argument-error 's-first "(and/c set? (not/c set-empty?))" s))
+    ((get-unwrap s) (hash-iterate-key ht pos)))
+  (define (s-rest s)
+    (dprintf "(set-rest ~v)\n" s)
+    (define ht (s-ht s))
+    (define pos (hash-iterate-first ht))
+    (unless pos
+      (raise-argument-error 's-rest "(and/c set? (not/c set-empty?))" s))
+    (update-s s (hash-remove ht (hash-iterate-key ht pos))))
+  (define (s-rest! s)
+    (dprintf "(set-rest ~v)\n" s)
+    (stream-map (get-unwrap s)
+                (stream-rest (sequence->stream (in-hash-keys (s-ht s))))))
+  ;; There is no separate set-copy and set-copy!, just set-copy.
+  ;; The two copies here implement set-copy for immutable and mutable sets.
+  ;; Immutable sets don't need to do anything in s-copy.
+  ;; Mutable sets need to copy every binding in s-copy!.
+  (define (s-copy s)
+    (dprintf "(set-copy ~v)\n" s)
+    s)
+  (define (s-copy! s)
+    (dprintf "(set-copy ~v)\n" s)
+    (update-s s (hash-copy (s-ht s))))
+  (define (s-clear s)
+    (dprintf "(set-clear ~v)\n" s)
+    (update-s s (make-ht)))
+  (define (s-clear! s)
+    (dprintf "(set-clear! ~v)\n" s)
+    (set-s-ht! s (make-ht)))
 
-(define set-symmetric-difference
-  (case-lambda
-    [(set)
-     (unless (set? set) (raise-argument-error 'set-symmetric-difference "set?" 0 set))
-     set]
-    [(set set2)
-     (unless (set? set) (raise-argument-error 'set-symmetric-difference "set?" 0 set set2))
-     (unless (set? set2) (raise-argument-error 'set-symmetric-difference "set?" 1 set set2))
-     (let ([ht1 (set-ht set)]
-           [ht2 (set-ht set2)])
-      (check-same-equiv 'set-symmetric-difference set set2 ht1 ht2)
-      (let-values ([(big small)
-                    (if (>= (hash-count ht1) (hash-count ht2))
-                        (values ht1 ht2)
-                        (values ht2 ht1))])
-        (make-set
-         (for/fold ([ht big]) ([e (in-hash-keys small)])
-           (if (hash-ref ht e #f)
-               (hash-remove ht e)
-               (hash-set ht e #t))))))]
-    [(set . sets)
-     (for ([s (in-list (cons set sets))]
-           [i (in-naturals)])
-       (unless (set? s) (apply raise-argument-error 'set-symmetric-difference "set?" i (cons s sets))))
-     (for/fold ([set set]) ([set2 (in-list sets)])
-       (set-symmetric-difference set set2))]))
+  (define (s-map s f)
+    (dprintf "(set-map ~v ~v)\n" s f)
+    ;; The order of set elements is unspecified.
+    ;; Therefore we can build the list in one pass,
+    ;; and not reverse at the end to preserve left-to-right order.
+    (define unwrap (get-unwrap s))
+    (for/fold ([lst '()]) ([k (in-hash-keys (s-ht s))])
+      (cons (f (unwrap k)) lst)))
+  (define (s->list s)
+    (dprintf "(set->list ~v)\n" s)
+    ;; As with s-map above, we don't have to preserve element order.
+    (define unwrap (get-unwrap s))
+    (for/fold ([lst '()]) ([k (in-hash-keys (s-ht s))])
+      (cons (unwrap k) lst)))
+  (define (s-for-each s f)
+    (dprintf "(set-for-each ~v ~v)\n" s f)
+    (define unwrap (get-unwrap s))
+    (for ([k (in-hash-keys (s-ht s))])
+      (f (unwrap k))))
 
-(define (set->list set)
-  (unless (set? set) (raise-argument-error 'set->list "set?" 0 set))
-  (for/list ([elem (in-hash-keys (set-ht set))]) elem))
+  (define (s-equal? s1 s2 [rec equal?])
+    (cond
+      [(s? s2)
+       (define ht1 (s-ht s1))
+       (define ht2 (s-ht s2))
+       (rec ht1 ht2)]
+      [else #f]))
+  (define (s=? s1 s2)
+    (dprintf "(set=? ~v ~v)\n" s1 s2)
+    (define ht1 (s-ht s1))
+    (define ht2 (alt-s-ht 'set=? s1 s2))
+    (and ht2
+         (= (hash-count ht1) (hash-count ht2))
+         (for/and ([k (in-hash-keys ht1)])
+           (hash-ref ht2 k #f))))
+  (define (s-subset? s1 s2)
+    (dprintf "(subset? ~v ~v)\n" s1 s2)
+    (define ht1 (s-ht s1))
+    (define ht2 (alt-s-ht 'subset? s1 s2))
+    (and (<= (hash-count ht1) (hash-count ht2))
+         (for/and ([k (in-hash-keys ht1)])
+           (hash-ref ht2 k #f))))
+  (define (s-proper-subset? s1 s2)
+    (dprintf "(proper-subset? ~v ~v)\n" s1 s2)
+    (define ht1 (s-ht s1))
+    (define ht2 (alt-s-ht 'proper-subset? s1 s2))
+    (and (< (hash-count ht1) (hash-count ht2))
+         (for/and ([k (in-hash-keys ht1)])
+           (hash-ref ht2 k #f))))
+
+  (define (s-union s1 s2)
+    (dprintf "(set-union ~v ~v)\n" s1 s2)
+    (define ht1 (s-ht s1))
+    (define ht2 (alt-s-ht 'set-union s1 s2))
+    (define-values (target source)
+      (if (and (s? s2) (< (hash-count ht1) (hash-count ht2)))
+          (values ht2 ht1)
+          (values ht1 ht2)))
+    (define ht
+      (for/fold ([ht target]) ([k (in-hash-keys source)])
+        (hash-set ht k #t)))
+    (update-s s1 ht))
+  (define (s-intersect s1 s2)
+    (dprintf "(set-intersect ~v ~v)\n" s1 s2)
+    (define ht1 (s-ht s1))
+    (define ht2 (alt-s-ht 'set-intersect s1 s2))
+    (define-values (target source)
+      (if (and (s? s2) (> (hash-count ht1) (hash-count ht2)))
+          (values ht2 ht1)
+          (values ht1 ht2)))
+    (define ht
+      (for/fold
+          ([ht target])
+          ([k (in-hash-keys target)]
+           #:unless (hash-ref source k #f))
+        (hash-remove ht k)))
+    (update-s s1 ht))
+  (define (s-subtract s1 s2)
+    (dprintf "(set-subtract ~v ~v)\n" s1 s2)
+    (define ht1 (s-ht s1))
+    (define ht2 (alt-s-ht 'set-subtract s1 s2))
+    (define ht
+      (for/fold ([ht ht1]) ([k (in-hash-keys ht2)])
+        (hash-remove ht k)))
+    (update-s s1 ht))
+  (define (s-symm-diff s1 s2)
+    (dprintf "(set-symmetric-difference ~v ~v)\n" s1 s2)
+    (define ht1 (s-ht s1))
+    (define ht2 (s-ht s2))
+    (define-values (target source)
+      (if (and (s? s2) (< (hash-count ht1) (hash-count ht2)))
+          (values ht2 ht1)
+          (values ht1 ht2)))
+    (define ht
+      (for/fold ([ht target]) ([k (in-hash-keys source)])
+        (if (hash-ref ht k #f)
+            (hash-remove ht k)
+            (hash-set ht k #t))))
+    (update-s s1 ht))
+
+  (define (s-union! s1 s2)
+    (dprintf "(set-union! ~v ~v)\n" s1 s2)
+    (define ht1 (s-ht s1))
+    (define ht2 (alt-s-ht 'set-union! s1 s2))
+    (for ([k (in-hash-keys ht2)])
+      (hash-set! ht1 k #t)))
+  (define (s-intersect! s1 s2)
+    (dprintf "(set-intersect! ~v ~v)\n" s1 s2)
+    (define ht1 (s-ht s1))
+    (define ht2 (alt-s-ht 'set-intersect! s1 s2))
+    ;; We cannot mutate the hash table while iterating through it.
+    ;; Therefore we must record the values to remove, then remove them.
+    ;; Order does not matter, so we can use for/fold instead of for/list.
+    (define to-remove
+      (for/fold ([lst '()]) ([k (in-hash-keys ht1)])
+        (if (hash-ref ht2 k #f)
+            lst
+            (cons k lst))))
+    (for ([k (in-list to-remove)])
+      (hash-remove! ht1 k)))
+  (define (s-subtract! s1 s2)
+    (dprintf "(set-subtract! ~v ~v)\n" s1 s2)
+    (define ht1 (s-ht s1))
+    (define ht2 (alt-s-ht 'set-subtract! s1 s2))
+    (for ([k (in-hash-keys ht2)])
+      (hash-remove! ht1 k)))
+  (define (s-symm-diff! s1 s2)
+    (dprintf "(set-symmetric-difference! ~v ~v)\n" s1 s2)
+    (define ht1 (s-ht s1))
+    (define ht2 (alt-s-ht 'set-symmetric-difference! s1 s2))
+    (for ([k (in-hash-keys ht2)])
+      (if (hash-ref ht1 k #f)
+          (hash-remove! ht1 k)
+          (hash-set! ht1 k #t))))
+
+  (define (alt-s-ht op s1 s2)
+    (cond
+      [(s? s2) (s-ht s2)]
+      [(alt1-s? s1 s2) (alt1-s-ht s2)]
+      [(alt2-s? s1 s2) (alt2-s-ht s2)]
+      [op (raise-argument-error op desc 1 s1 s2)]
+      [else #f]))
+
+  (values s-custom-write s-hash-code s-hash-code
+          s-count s-member? s-add s-remove s-add! s-remove!
+          s->stream s-empty? s-first s-rest s-rest!
+          s-copy s-copy! s-clear s-clear!
+          s-map s-for-each s->list
+          s-equal? s=? s-subset? s-proper-subset?
+          s-union s-intersect s-subtract s-symm-diff
+          s-union! s-intersect! s-subtract! s-symm-diff!))
+
+(define (implement-immutable-ht-set name desc
+                                    make-ht get-wrap get-unwrap
+                                    s? s-ht update-s
+                                    alt1-s? alt1-s-ht alt2-s? alt2-s-ht)
+
+  (define-values [s-custom-write s-hash-code1 s-hash-code2
+                  s-count s-member? s-add s-remove s-add! s-remove!
+                  s->stream s-empty? s-first s-rest s-rest!
+                  s-copy s-copy! s-clear s-clear!
+                  s-map s-for-each s->list
+                  s-equal? s=? s-subset? s-proper-subset?
+                  s-union s-intersect s-subtract s-symm-diff
+                  s-union! s-intersect! s-subtract! s-symm-diff!]
+    (implement-ht-set name desc
+                      make-ht get-wrap get-unwrap
+                      s? s-ht update-s void
+                      alt1-s? alt1-s-ht alt2-s? alt2-s-ht))
+
+  (values s-custom-write s-hash-code1 s-hash-code2
+          s-count s-member? s-add s-remove
+          s->stream s-empty? s-first s-rest
+          s-copy s-clear
+          s-map s-for-each s->list
+          s-equal? s=? s-subset? s-proper-subset?
+          s-union s-intersect s-subtract s-symm-diff))
+
+(define (implement-mutable-ht-set name desc
+                                  make-ht get-wrap get-unwrap
+                                  s? s-ht update-s set-s-ht!
+                                  alt1-s? alt1-s-ht alt2-s? alt2-s-ht)
+
+  (define-values [s-custom-write s-hash-code1 s-hash-code2
+                  s-count s-member? s-add s-remove s-add! s-remove!
+                  s->stream s-empty? s-first s-rest s-rest!
+                  s-copy s-copy! s-clear s-clear!
+                  s-map s-for-each s->list
+                  s-equal? s=? s-subset? s-proper-subset?
+                  s-union s-intersect s-subtract s-symm-diff
+                  s-union! s-intersect! s-subtract! s-symm-diff!]
+    (implement-ht-set name desc
+                      make-ht get-wrap get-unwrap
+                      s? s-ht update-s set-s-ht!
+                      alt1-s? alt1-s-ht alt2-s? alt2-s-ht))
+
+  (values s-custom-write s-hash-code1 s-hash-code2
+          s-count s-member? s-add! s-remove!
+          s->stream s-empty? s-first s-rest!
+          s-copy! s-clear s-clear!
+          s-map s-for-each s->list
+          s-equal? s=? s-subset? s-proper-subset?
+          s-union! s-intersect! s-subtract! s-symm-diff!))
+
+(define-syntax (declare-ht-sets stx)
+  (syntax-case stx ()
+    [(_ declare-struct base-name [field ...] desc-str
+        make-immutable-ht
+        make-mutable-ht
+        make-weak-ht
+        make-wrap
+        make-unwrap)
+     ;; This macro is for use in this file only,
+     ;; so we don't need to do thorough checking of inputs.
+     (let ()
+       (define base-id #'base-name)
+       (define (derived fmt . args)
+         (apply format-id base-id #:source base-id fmt base-id args))
+
+       ;; Visible names and quoted symbols:
+       (define/with-syntax s? (derived "ht-~a?"))
+       (define/with-syntax is-name (derived "~a"))
+       (define/with-syntax ms-name (derived "mutable-~a"))
+       (define/with-syntax ws-name (derived "weak-~a"))
+       (define/with-syntax is-struct (derived "immutable-ht-~a"))
+       (define/with-syntax ms-struct (derived "mutable-ht-~a"))
+       (define/with-syntax ws-struct (derived "weak-ht-~a"))
+       (define/with-syntax is? (derived "immutable-ht-~a?"))
+       (define/with-syntax ms? (derived "mutable-ht-~a?"))
+       (define/with-syntax ws? (derived "weak-ht-~a?"))
+       (define/with-syntax make-is (derived "make-immutable-ht-~a"))
+       (define/with-syntax make-ms (derived "make-mutable-ht-~a"))
+       (define/with-syntax make-ws (derived "make-weak-ht-~a"))
+       (define/with-syntax is-table (derived "immutable-ht-~a-table"))
+       (define/with-syntax ms-table (derived "mutable-ht-~a-table"))
+       (define/with-syntax ws-table (derived "weak-ht-~a-table"))
+       (define/with-syntax set-ms-table! (derived "set-mutable-ht-~a-table!"))
+       (define/with-syntax set-ws-table! (derived "set-weak-ht-~a-table!"))
+       (define/with-syntax [is-field ...]
+         (for/list ([field-id (in-list (syntax->list #'(field ...)))])
+           (derived "immutable-ht-~a-~a" field-id)))
+       (define/with-syntax [ms-field ...]
+         (for/list ([field-id (in-list (syntax->list #'(field ...)))])
+           (derived "mutable-ht-~a-~a" field-id)))
+       (define/with-syntax [ws-field ...]
+         (for/list ([field-id (in-list (syntax->list #'(field ...)))])
+           (derived "weak-ht-~a-~a" field-id)))
+
+       #'(begin
+           (define (s? x)
+             (or (is? x) (ms? x) (ws? x)))
+           (define-values [is-custom-write is-code1 is-code2
+                           is-count is-member? is-add is-remove
+                           is->stream is-empty? is-first is-rest
+                           is-copy is-clear
+                           is-map is-for-each is->list
+                           is-equal? is=? is-subset? is-proper-subset?
+                           is-union is-intersect is-subtract is-symm-diff]
+             (implement-immutable-ht-set 'is-name 'desc-str
+               make-immutable-ht
+               (lambda (s) (make-wrap (is-field s) ...))
+               (lambda (s) (make-unwrap (is-field s) ...))
+               (lambda (s) (is? s))
+               (lambda (s) (is-table s))
+               (lambda (s x) (make-is x (is-field s) ...))
+               (lambda (s1 s2)
+                 (and (ms? s2)
+                      (equal? (is-field s1) (ms-field s2))
+                      ...))
+               (lambda (s) (ms-table s))
+               (lambda (s1 s2)
+                 (and (ws? s2)
+                      (equal? (is-field s1) (ws-field s2))
+                      ...))
+               (lambda (s) (ws-table s))))
+           (define-values [ms-custom-write ms-code1 ms-code2
+                           ms-count ms-member? ms-add! ms-remove!
+                           ms->stream ms-empty? ms-first ms-rest
+                           ms-copy ms-clear ms-clear!
+                           ms-map ms-for-each ms->list
+                           ms-equal? ms=? ms-subset? ms-proper-subset?
+                           ms-union! ms-intersect! ms-subtract! ms-symm-diff!]
+             (implement-mutable-ht-set 'ms-name 'desc-str
+               make-mutable-ht
+               (lambda (s) (make-wrap (ms-field s) ...))
+               (lambda (s) (make-unwrap (ms-field s) ...))
+               (lambda (s) (ms? s))
+               (lambda (s) (ms-table s))
+               (lambda (s x) (make-ms x (ms-field s) ...))
+               (lambda (s ht) (set-ms-table! s ht))
+               (lambda (s1 s2)
+                 (and (is? s2)
+                      (equal? (ms-field s1) (is-field s2))
+                      ...))
+               (lambda (s) (is-table s))
+               (lambda (s1 s2)
+                 (and (ws? s2)
+                      (equal? (ms-field s1) (ws-field s2))
+                      ...))
+               (lambda (s) (ws-table s))))
+           (define-values [ws-custom-write ws-code1 ws-code2
+                           ws-count ws-member? ws-add! ws-remove!
+                           ws->stream ws-empty? ws-first ws-rest
+                           ws-copy ws-clear ws-clear!
+                           ws-map ws-for-each ws->list
+                           ws-equal? ws=? ws-subset? ws-proper-subset?
+                           ws-union! ws-intersect! ws-subtract! ws-symm-diff!]
+             (implement-mutable-ht-set 'ws-name 'desc-str
+               make-weak-ht
+               (lambda (s) (make-wrap (ws-field s) ...))
+               (lambda (s) (make-unwrap (ws-field s) ...))
+               (lambda (s) (ws? s))
+               (lambda (s) (ws-table s))
+               (lambda (s x) (make-ws x (ws-field s) ...))
+               (lambda (s ht) (set-ws-table! s ht))
+               (lambda (s1 s2)
+                 (and (is? s2)
+                      (eq? (ws-field s1) (is-field s2))
+                      ...))
+               (lambda (s) (is-table s))
+               (lambda (s1 s2)
+                 (and (ms? s2)
+                      (equal? (ws-field s1) (ms-field s2))
+                      ...))
+               (lambda (s) (ms-table s))))
+           (declare-struct is-struct [table field ...]
+             #:omit-define-syntaxes
+             #:reflection-name 'is-name
+             #:constructor-name make-is
+             #:property prop:custom-print-quotable 'never
+             #:property prop:custom-write is-custom-write
+             #:property prop:equal+hash (list is-equal? is-code1 is-code2)
+             #:property prop:sequence is->stream
+             #:property prop:stream (vector is-empty? is-first is-rest)
+             #:methods gen:set
+             [(define set-count is-count)
+              (define set-member? is-member?)
+              (define set-add is-add)
+              (define set-remove is-remove)
+              (define set->stream is->stream)
+              (define set-clear is-clear)
+              (define set-copy is-copy)
+              (define set-empty? is-empty?)
+              (define set-first is-first)
+              (define set-map is-map)
+              (define set-for-each is-for-each)
+              (define set->list is->list)
+              (define set=? is=?)
+              (define subset? is-subset?)
+              (define proper-subset? is-proper-subset?)
+              (define simple-set-union is-union)
+              (define simple-set-intersect is-intersect)
+              (define simple-set-subtract is-subtract)
+              (define simple-set-symmetric-difference is-symm-diff)])
+           (declare-struct ms-struct [table field ...]
+             #:mutable
+             #:omit-define-syntaxes
+             #:reflection-name 'ms-name
+             #:constructor-name make-ms
+             #:property prop:custom-print-quotable 'never
+             #:property prop:custom-write ms-custom-write
+             #:property prop:equal+hash (list ms-equal? ms-code1 ms-code2)
+             #:property prop:sequence ms->stream
+             #:property prop:stream (vector ms-empty? ms-first ms-rest)
+             #:methods gen:set
+             [(define set-count ms-count)
+              (define set-member? ms-member?)
+              (define set-add! ms-add!)
+              (define set-remove! ms-remove!)
+              (define set-clear! ms-clear!)
+              (define set-clear ms-clear)
+              (define set-copy ms-copy)
+              (define set->stream ms->stream)
+              (define set-empty? ms-empty?)
+              (define set-first ms-first)
+              (define set-map ms-map)
+              (define set-for-each ms-for-each)
+              (define set->list ms->list)
+              (define set=? ms=?)
+              (define subset? ms-subset?)
+              (define proper-subset? ms-proper-subset?)
+              (define simple-set-union! ms-union!)
+              (define simple-set-intersect! ms-intersect!)
+              (define simple-set-subtract! ms-subtract!)
+              (define simple-set-symmetric-difference! ms-symm-diff!)])
+           (declare-struct ws-struct [table field ...]
+             #:mutable
+             #:omit-define-syntaxes
+             #:reflection-name 'ws-name
+             #:constructor-name make-ws
+             #:property prop:custom-print-quotable 'never
+             #:property prop:custom-write ws-custom-write
+             #:property prop:equal+hash (list ws-equal? ws-code1 ws-code2)
+             #:property prop:sequence ws->stream
+             #:property prop:stream (vector ws-empty? ws-first ws-rest)
+             #:methods gen:set
+             [(define set-count ws-count)
+              (define set-member? ws-member?)
+              (define set-add! ws-add!)
+              (define set-remove! ws-remove!)
+              (define set-clear! ws-clear!)
+              (define set-clear ws-clear)
+              (define set-copy ws-copy)
+              (define set->stream ws->stream)
+              (define set-empty? ws-empty?)
+              (define set-first ws-first)
+              (define set-map ws-map)
+              (define set-for-each ws-for-each)
+              (define set->list ws->list)
+              (define set=? ws=?)
+              (define subset? ws-subset?)
+              (define proper-subset? ws-proper-subset?)
+              (define simple-set-union! ws-union!)
+              (define simple-set-intersect! ws-intersect!)
+              (define simple-set-subtract! ws-subtract!)
+              (define simple-set-symmetric-difference! ws-symm-diff!)])))]))
+
+(define (default-wrapper x) x)
+(define (default-unwrapper x) x)
+
+(define (make-default-wrapper) default-wrapper)
+(define (make-default-unwrapper) default-unwrapper)
+
+(declare-ht-sets serializable-struct set [] "(and/c set? set-equal?)"
+  make-immutable-hash
+  make-hash
+  make-weak-hash
+  make-default-wrapper
+  make-default-unwrapper)
+
+(declare-ht-sets serializable-struct seteqv [] "(and/c set? set-eqv?)"
+  make-immutable-hasheqv
+  make-hasheqv
+  make-weak-hasheqv
+  make-default-wrapper
+  make-default-unwrapper)
+
+(declare-ht-sets serializable-struct seteq [] "(and/c set? set-eq?)"
+  make-immutable-hasheq
+  make-hasheq
+  make-weak-hasheq
+  make-default-wrapper
+  make-default-unwrapper)
+
+(define (custom-equal? x y rec)
+  (define x.contents (custom-wrapper-contents x))
+  (define x.equal? (custom-wrapper-equal? x))
+  (define x.hash-code1 (custom-wrapper-hash-code1 x))
+  (define x.hash-code2 (custom-wrapper-hash-code2 x))
+  (define y.contents (custom-wrapper-contents y))
+  (define y.equal? (custom-wrapper-equal? y))
+  (define y.hash-code1 (custom-wrapper-hash-code1 y))
+  (define y.hash-code2 (custom-wrapper-hash-code2 y))
+  (and (equal? x.equal? y.equal?)
+       (equal? x.hash-code1 y.hash-code1)
+       (equal? x.hash-code2 y.hash-code2)
+       (if (procedure-arity-includes? x.equal? 3)
+           (x.equal? x.contents y.contents rec)
+           (x.equal? x.contents y.contents))))
+
+(define (custom-hash-code1 x rec)
+  (define x.hash-code1 (custom-wrapper-hash-code1 x))
+  (define x.contents (custom-wrapper-contents x))
+  (if (procedure-arity-includes? x.hash-code1 2)
+      (x.hash-code1 x.contents rec)
+      (x.hash-code1 x.contents)))
+
+(define (custom-hash-code2 x rec)
+  (define x.hash-code2 (custom-wrapper-hash-code2 x))
+  (define x.contents (custom-wrapper-contents x))
+  (if (procedure-arity-includes? x.hash-code2 2)
+      (x.hash-code2 x.contents rec)
+      (x.hash-code2 x.contents)))
+
+(struct custom-wrapper [contents equal? hash-code1 hash-code2]
+  #:property prop:equal+hash
+  (list custom-equal? custom-hash-code1 custom-hash-code2))
+
+(define (make-custom-wrapper =? hc1 hc2)
+  (lambda (x) (custom-wrapper x =? hc1 hc2)))
+
+(define (make-custom-unwrapper =? hc1 hc2)
+  custom-wrapper-contents)
+
+(declare-ht-sets struct custom-set [equal? hash-code1 hash-code2] "a custom set"
+  make-immutable-hash
+  make-hash
+  make-weak-hash
+  make-custom-wrapper
+  make-custom-unwrapper)
+
+(define (check-custom-set-procs! who =? hc hc2)
+  (unless (and (procedure? =?)
+               (or (procedure-arity-includes? =? 2)
+                   (procedure-arity-includes? =? 3)))
+    (raise-argument-error who "a procedure of 2 or 3 arguments" =?))
+  (when hc
+    (unless (and (procedure? hc)
+                 (or (procedure-arity-includes? hc 1)
+                     (procedure-arity-includes? hc 2)))
+      (raise-argument-error who "#f or a procedure of 1 or 2 arguments" hc)))
+  (when hc2
+    (unless (and (procedure? hc2)
+                 (or (procedure-arity-includes? hc2 1)
+                     (procedure-arity-includes? hc2 2)))
+      (raise-argument-error who "#f or a procedure of 1 or 2 arguments" hc2))))
+
+(define (default-hc x rec) 1)
+
+(define (make-custom-set =? [hc default-hc] [hc2 default-hc])
+  (check-custom-set-procs! 'make-custom-set =? hc hc2)
+  (make-immutable-ht-custom-set (make-immutable-hash) =? hc hc2))
+
+(define (make-mutable-custom-set =? [hc default-hc] [hc2 default-hc])
+  (check-custom-set-procs! 'make-mutable-custom-set =? hc hc2)
+  (make-mutable-ht-custom-set (make-hash) =? hc hc2))
+
+(define (make-weak-custom-set =? [hc default-hc] [hc2 default-hc])
+  (check-custom-set-procs! 'make-weak-custom-set =? hc hc2)
+  (make-weak-ht-custom-set (make-weak-hash) =? hc hc2))
+
+(define-syntax-rule (define-for for/fold/derived for/set
+                                make-hash make-set)
+  (...
+    (define-syntax (for/set stx)
+      (syntax-case stx ()
+        [(_ bindings . body)
+         (with-syntax ([((pre-body ...) post-body) (split-for-body stx #'body)]
+                       [source stx])
+           (syntax/loc stx
+             (make-set
+              (for/fold/derived source ([ht (make-hash)]) bindings
+                pre-body ...
+                (hash-set ht (let () . post-body) #t)))))]))))
+
+(define-for for/fold/derived for/set
+            make-immutable-hash make-immutable-ht-set)
+(define-for for*/fold/derived for*/set
+            make-immutable-hash make-immutable-ht-set)
+(define-for for/fold/derived for/seteq
+            make-immutable-hasheq make-immutable-ht-seteq)
+(define-for for*/fold/derived for*/seteq
+            make-immutable-hasheq make-immutable-ht-seteq)
+(define-for for/fold/derived for/seteqv
+            make-immutable-hasheqv make-immutable-ht-seteqv)
+(define-for for*/fold/derived for*/seteqv
+            make-immutable-hasheqv make-immutable-ht-seteqv)
+
+(define-syntax-rule (define-for-mutable for/fold/derived for/set
+                                        make-hash make-set)
+  (...
+    (define-syntax (for/set stx)
+      (syntax-case stx ()
+        [(_ bindings . body)
+         (with-syntax ([((pre-body ...) post-body) (split-for-body stx #'body)]
+                       [source stx])
+           (syntax/loc stx
+             (let ([ht (make-hash)])
+               (for/fold/derived source () bindings
+                 pre-body ...
+                 (hash-set! ht (let () . post-body) #t)
+                 (values))
+               (make-set ht))))]))))
+
+(define-for-mutable for/fold/derived for/mutable-set
+                    make-hash make-mutable-ht-set)
+(define-for-mutable for*/fold/derived for*/mutable-set
+                    make-hash make-mutable-ht-set)
+(define-for-mutable for/fold/derived for/mutable-seteq
+                    make-hasheq make-mutable-ht-seteq)
+(define-for-mutable for*/fold/derived for*/mutable-seteq
+                    make-hasheq make-mutable-ht-seteq)
+(define-for-mutable for/fold/derived for/mutable-seteqv
+                    make-hasheqv make-mutable-ht-seteqv)
+(define-for-mutable for*/fold/derived for*/mutable-seteqv
+                    make-hasheqv make-mutable-ht-seteqv)
+
+(define-for-mutable for/fold/derived for/weak-set
+                    make-weak-hash make-weak-ht-set)
+(define-for-mutable for*/fold/derived for*/weak-set
+                    make-weak-hash make-weak-ht-set)
+(define-for-mutable for/fold/derived for/weak-seteq
+                    make-weak-hasheq make-weak-ht-seteq)
+(define-for-mutable for*/fold/derived for*/weak-seteq
+                    make-weak-hasheq make-weak-ht-seteq)
+(define-for-mutable for/fold/derived for/weak-seteqv
+                    make-weak-hasheqv make-weak-ht-seteqv)
+(define-for-mutable for*/fold/derived for*/weak-seteqv
+                    make-weak-hasheqv make-weak-ht-seteqv)
+
+(define (set-equal? x)
+  (unless (set? x) (raise-argument-error 'set-equal? "set?" 0 x))
+  (ht-set? x))
+(define (set-eqv? x)
+  (unless (set? x) (raise-argument-error 'set-eqv? "set?" 0 x))
+  (ht-seteqv? x))
+(define (set-eq? x)
+  (unless (set? x) (raise-argument-error 'set-eq? "set?" 0 x))
+  (ht-seteq? x))
+
+(define (set . elems) (for/set ([e (in-list elems)]) e))
+(define (seteq . elems) (for/seteq ([e (in-list elems)]) e))
+(define (seteqv . elems) (for/seteqv ([e (in-list elems)]) e))
+(define (mutable-set . elems) (for/mutable-set ([e (in-list elems)]) e))
+(define (mutable-seteq . elems) (for/mutable-seteq ([e (in-list elems)]) e))
+(define (mutable-seteqv . elems) (for/mutable-seteqv ([e (in-list elems)]) e))
+(define (weak-set . elems) (for/weak-set ([e (in-list elems)]) e))
+(define (weak-seteq . elems) (for/weak-seteq ([e (in-list elems)]) e))
+(define (weak-seteqv . elems) (for/weak-seteqv ([e (in-list elems)]) e))
+
 (define (list->set elems)
-  (unless (list? elems) (raise-argument-error 'list->set "list?" 0 elems))
-  (apply set elems))
+  (unless (list? elems)
+    (raise-argument-error 'list->set "list?" elems))
+  (for/set ([e (in-list elems)]) e))
 (define (list->seteq elems)
-  (unless (list? elems) (raise-argument-error 'list->seteq "list?" 0 elems))
-  (apply seteq elems))
+  (unless (list? elems)
+    (raise-argument-error 'list->seteq "list?" elems))
+  (for/seteq ([e (in-list elems)]) e))
 (define (list->seteqv elems)
-  (unless (list? elems) (raise-argument-error 'list->seteqv "list?" 0 elems))
-  (apply seteqv elems))
+  (unless (list? elems)
+    (raise-argument-error 'list->seteqv "list?" elems))
+  (for/seteqv ([e (in-list elems)]) e))
+
+(define (list->mutable-set elems)
+  (unless (list? elems)
+    (raise-argument-error 'list->mutable-set "list?" elems))
+  (for/mutable-set ([e (in-list elems)]) e))
+(define (list->mutable-seteq elems)
+  (unless (list? elems)
+    (raise-argument-error 'list->mutable-seteq "list?" elems))
+  (for/mutable-seteq ([e (in-list elems)]) e))
+(define (list->mutable-seteqv elems)
+  (unless (list? elems)
+    (raise-argument-error 'list->mutable-seteqv "list?" elems))
+  (for/mutable-seteqv ([e (in-list elems)]) e))
+
+(define (list->weak-set elems)
+  (unless (list? elems)
+    (raise-argument-error 'list->weak-set "list?" elems))
+  (for/weak-set ([e (in-list elems)]) e))
+(define (list->weak-seteq elems)
+  (unless (list? elems)
+    (raise-argument-error 'list->weak-seteq "list?" elems))
+  (for/weak-seteq ([e (in-list elems)]) e))
+(define (list->weak-seteqv elems)
+  (unless (list? elems)
+    (raise-argument-error 'list->weak-seteqv "list?" elems))
+  (for/weak-seteqv ([e (in-list elems)]) e))

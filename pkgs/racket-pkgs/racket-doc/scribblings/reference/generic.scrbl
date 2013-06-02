@@ -19,7 +19,8 @@ a structure type are defined using the @racket[#:methods] keyword
 @defform/subs[(define-generics id [#:defined-table defined-table-id]
                 [method-id . kw-formals*]
                 ...
-                maybe-defaults)
+                maybe-defaults
+                maybe-fallbacks)
               ([kw-formals* (arg* ...)
                             (arg* ...+ . rest-id)
                             rest-id]
@@ -30,7 +31,9 @@ a structure type are defined using the @racket[#:methods] keyword
                [maybe-defaults (code:line)
                                (code:line #:defaults ([pred?
                                                        method-impl ...]
-                                                      ...))])]{
+                                                      ...))]
+               [maybe-fallbacks (code:line)
+                                (code:line #:fallbacks [fallback-impl ...])])]{
 
 Defines 
 
@@ -71,11 +74,17 @@ When @racket[maybe-defaults] is provided, each generic function
 uses @racket[pred?]s to dispatch to the given default implementations,
 @racket[method-impl]s, if dispatching to the generic method table fails.
 The syntax of the @racket[method-impl]s is the same as the methods
-provided for the @racket[#:methods] keyword for @racket[struct].}
+provided for the @racket[#:methods] keyword for @racket[struct].
+
+When @racket[maybe-fallbacks] is provided, the given @racket[fallback-impl]s
+are used any time a method is not implemented for a generic value.
+The syntax of the @racket[fallback-impl]s is the same as the methods
+provided for the @racket[#:methods] keyword for @racket[struct].
 
 The @racket[id]@racketidfont{/c} combinator is intended to be used to
 contract the range of a constructor procedure for a struct type that
 implements the generic interface.
+}
 
 @defform[(define/generic local-id method-id)
          #:contracts
@@ -89,7 +98,7 @@ use generic methods (as opposed to the local specialization) on other
 values.
 
 Using the @racket[define/generic] form outside a @racket[#:methods]
-specification in @racket[struct] (or @racket[define-struct]) is an
+specification in @racket[struct] (or @racket[define-struct]) is a
 syntax error.}
 
 
@@ -108,13 +117,22 @@ syntax error.}
 (define-generics printable
   (gen-print printable [port])
   (gen-port-print port printable)
-  (gen-print* printable [port] #:width width #:height [height]))
+  (gen-print* printable [port] #:width width #:height [height])
+  #:defaults
+  ([string?
+    (define (gen-print str [port (current-output-port)])
+      (fprintf port "String: ~v" str))
+    (define (gen-print* str [port (current-output-port)] 
+                        #:width w #:height [h 0])
+      (fprintf port "Str (~ax~a): ~v" w h str))])
+  #:fallbacks
+  [(define (gen-port-print port x) (gen-print x port))
+   (define (gen-print x [port (current-output-port)])
+     (gen-print* x port #:width 1 #:height 0))])
 
 (define-struct num (v)
   #:methods gen:printable
   [(define/generic super-print gen-print)
-   (define (gen-print n [port (current-output-port)])
-     (fprintf port "Num: ~a" (num-v n)))
    (define (gen-port-print port n)
      (super-print n port))
    (define (gen-print* n [port (current-output-port)]

@@ -1,9 +1,8 @@
 #lang racket/base
 (require racket/contract/base
          racket/contract/combinator
-         (rename-in "private/generic.rkt"
-                    [define-generics define-generics/pre])
-         (for-syntax racket/base racket/local racket/syntax))
+         "private/generic.rkt"
+         (for-syntax racket/base racket/local racket/syntax syntax/stx))
 
 ;; Convenience layer on top of racket/private/generic.
 ;; To avoid circular dependencies, racket/private/generic cannot use
@@ -14,46 +13,105 @@
 
 (provide define-generics define/generic)
 
+(begin-for-syntax
+
+  (define (parse stx table defaults fallbacks methods exts)
+    (syntax-case stx ()
+      [(#:defined-table name . args)
+       (identifier? #'name)
+       (if table
+           (wrong-syntax (stx-car stx)
+                         "duplicate #:defined-table specification")
+           (parse #'args #'name defaults fallbacks methods exts))]
+      [(#:defined-table . other)
+       (wrong-syntax (stx-car stx) "invalid #:defined-table specification")]
+      [(#:extend name . args)
+       (identifier? #'name)
+       (parse #'args table defaults fallbacks methods (cons #'name exts))]
+      [(#:extend [name ...] . args)
+       (andmap identifier? (syntax->list #'(name ...)))
+       (parse #'args table defaults fallbacks methods
+              (append (reverse (syntax->list #'[name ...])) exts))]
+      [(#:extend . other)
+       (wrong-syntax (stx-car stx) "invalid #:extend specification")]
+      [(#:defaults ([pred defn ...] ...) . args)
+       (if defaults
+           (wrong-syntax (stx-car stx) "duplicate #:defaults specification")
+           (parse #'args table #'([pred defn ...] ...) fallbacks methods exts))]
+      [(#:defaults . other)
+       (wrong-syntax (stx-car stx) "invalid #:defaults specification")]
+      [(#:fallbacks [fallback ...] . args)
+       (if fallbacks
+           (wrong-syntax (stx-car stx) "duplicate #:fallbacks specification")
+           (parse #'args table defaults #'[fallback ...] methods exts))]
+      [(#:fallbacks . other)
+       (wrong-syntax (stx-car stx) "invalid #:fallbacks specification")]
+      [(kw . args)
+       (keyword? (syntax-e #'kw))
+       (wrong-syntax #'kw "invalid keyword argument")]
+      [((m . sig) . args)
+       (parse #'args table defaults fallbacks (cons #'(m . sig) methods) exts)]
+      [(other . args)
+       (wrong-syntax #'other
+                     "expected a method identifier with formal arguments")]
+      [() (values (or table (generate-temporary 'table))
+                  (or defaults '())
+                  (or fallbacks '())
+                  (reverse methods)
+                  (reverse exts))]
+      [other
+       (wrong-syntax #'other
+                     "expected a list of arguments with no dotted tail")])))
+
 (define-syntax (define-generics stx) ; allows out-of-order / optional kw args
-  (syntax-case stx () ; can't use syntax-parse, since it depends on us
-    [(_ name (generic . generics-args) ... #:defaults defaults)
-     #'(define-generics name
-         #:defined-table defined-table
-         (generic . generics-args) ...
-         #:defaults defaults)]
-    [(_ name #:defined-table defined-table (generic . generics-args) ...)
-     #'(define-generics name
-         #:defined-table defined-table
-         (generic . generics-args) ...
-         #:defaults ())]
-    [(_ name (generic . generics-args) ...)
-     #'(define-generics name
-         #:defined-table defined-table
-         (generic . generics-args) ...
-         #:defaults ())]
-    [(_ name
-       #:defined-table defined-table
-       (generic . generics-args) ...
-       #:defaults defaults)
-     (local [(define name-str (symbol->string (syntax-e #'name)))
-             (define (id . strs)
-               (datum->syntax
-                #'name (string->symbol (apply string-append strs)) #'name))]
-      (with-syntax ([name? (id name-str "?")]
-                    [gen:name (id "gen:" name-str)])
-       #'(define-generics/pre (name gen:name prop:name name?
-                                    #:defined-table defined-table
-                                    #:defaults defaults
-                                    ;; the following are not public
-                                    #:prop-defined-already? #f
-                                    #:define-contract define-generics-contract)
-           (generic . generics-args) ...)))]))
+  (syntax-case stx ()
+    [(_ name . rest)
+     (parameterize ([current-syntax-context stx])
+       (unless (identifier? #'name)
+         (wrong-syntax #'name "expected an identifier"))
+       (define-values (table defaults fallbacks methods extensions)
+         (parse #'rest #f #f #f '() '()))
+       (define/with-syntax [default ...] defaults)
+       (define/with-syntax [fallback ...] fallbacks)
+       (define/with-syntax [ext ...] extensions)
+       (define/with-syntax [(method . sig) ...] methods)
+       (define/with-syntax pred-name (format-id #'name "~a?" #'name))
+       (define/with-syntax gen-name (format-id #'name "gen:~a" #'name))
+       (define/with-syntax ctc-name (format-id #'name "~a/c" #'name))
+       (define/with-syntax table-name table)
+       (define/with-syntax prop-name (generate-temporary 'prop))
+       (define/with-syntax get-name (generate-temporary 'get))
+       (define/with-syntax original stx)
+       #'(begin
+           (define-primitive-generics/derived
+             #:define-generic gen-name
+             #:define-predicate pred-name
+             #:define-property prop-name
+             #:define-accessor get-name
+             #:define-supported table-name
+             #:define-methods [(method . sig) ...]
+             #:given-self name
+             #:given-extensions [ext ...]
+             #:given-defaults [default ...]
+             #:given-fallbacks [fallback ...]
+             #:given-source original)
+           (define-generics-contract
+             #:define-contract ctc-name
+             #:given-predicate pred-name
+             #:given-accessor get-name
+             #:given-methods [method ...])))]))
 
 ;; generate a contract combinator for instances of a generic interface
 (define-syntax (define-generics-contract stx)
   (syntax-case stx ()
-    [(_ name name? accessor (generic generic-idx) ...)
-     (with-syntax ([name/c (format-id #'name "~a/c" #'name)])
+    [(_ #:define-contract name/c
+        #:given-predicate name?
+        #:given-accessor accessor
+        #:given-methods [generic ...])
+     (with-syntax ([(generic-idx ...)
+                    (for/list ([i (in-naturals)]
+                               [stx (in-list (syntax->list #'(generic ...)))])
+                      i)])
        #`(define-syntax (name/c stx)
            (syntax-case stx ()
              [(_ [method-id ctc] (... ...))
@@ -69,7 +127,7 @@
                  (list 'method-id (... ...))
                  (list ctc (... ...))
                  (make-immutable-hash
-                  (list (cons 'generic generic-idx) ...)))])))]))
+                  (list (cons 'generic 'generic-idx) ...)))])))]))
 
 ;; make a generic instance contract
 (define (make-generic-instance/c name name? accessor ids ctc-args method-map)
@@ -96,14 +154,18 @@
 
 ;; redirect for use with chaperone-vector
 (define ((method-table-redirect ctc blame) vec idx val)
-  (define id+ctc-map (base-generic-instance/c-id+ctc-map ctc))
-  (define maybe-id+ctc (hash-ref id+ctc-map idx #f))
-  (cond [maybe-id+ctc
-         (define id (car maybe-id+ctc))
-         (define proj (cdr maybe-id+ctc))
-         (define blame-string (format "the ~a method of" id))
-         ((proj (blame-add-context blame blame-string)) val)]
-        [else val]))
+  (cond
+    [(eq? val #f) #f]
+    [else
+     (define id+ctc-map (base-generic-instance/c-id+ctc-map ctc))
+     (define maybe-id+ctc (hash-ref id+ctc-map idx #f))
+     (cond
+       [maybe-id+ctc
+        (define id (car maybe-id+ctc))
+        (define proj (cdr maybe-id+ctc))
+        (define blame-string (format "the ~a method of" id))
+        ((proj (blame-add-context blame blame-string)) val)]
+       [else val])]))
 
 ;; projection for generic methods
 (define ((generic-instance/c-proj proxy-struct proxy-vector) ctc)
@@ -134,9 +196,9 @@
          (define method-map (base-generic-instance/c-method-map ctc))
          ;; do sub-contract first-order checks
          (for/and ([id ids] [ctc ctcs])
-           (contract-first-order-passes?
-            ctc
-            (vector-ref method-table (hash-ref method-map id))))]
+           (define v (vector-ref method-table (hash-ref method-map id)))
+           (or (eq? v #f)
+               (contract-first-order-passes? ctc v)))]
         [else #f]))
 
 ;; name        - for building ctc name

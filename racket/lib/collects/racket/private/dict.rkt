@@ -3,22 +3,26 @@
 (require racket/private/generic ; to avoid circular dependencies
          (for-syntax racket/base))
 
-(define-generics (dict gen:dict prop:dict dict?
-                       #:defined-table dict-def-table
-                       #:defaults ()
-                       ;; private version needs all kw args, in order
-                       #:prop-defined-already? #f
-                       #:define-contract #f)
-  (dict-ref  dict key [default])
-  (dict-set! dict key val)
-  (dict-set  dict key val)
-  (dict-remove! dict key)
-  (dict-remove  dict key)
-  (dict-count dict)
-  (dict-iterate-first dict)
-  (dict-iterate-next dict pos)
-  (dict-iterate-key dict pos)
-  (dict-iterate-value dict pos))
+(define-primitive-generics
+  #:define-generic gen:dict
+  #:define-predicate dict?
+  #:define-property prop:dict
+  #:define-accessor dict-method-table
+  #:define-supported dict-def-table
+  #:define-methods [(dict-ref  dict key [default])
+                    (dict-set! dict key val)
+                    (dict-set  dict key val)
+                    (dict-remove! dict key)
+                    (dict-remove  dict key)
+                    (dict-count dict)
+                    (dict-iterate-first dict)
+                    (dict-iterate-next dict pos)
+                    (dict-iterate-key dict pos)
+                    (dict-iterate-value dict pos)]
+  #:given-self dict
+  #:given-extensions ()
+  #:given-defaults ()
+  #:given-fallbacks ())
 
 (define (assoc? v)
   (and (list? v) (andmap pair? v)))
@@ -411,59 +415,117 @@
 
 ;; ----------------------------------------
 
-(struct hash-box (key))
-
 (define custom-hash-ref
   (case-lambda
-   [(d k) (hash-ref (custom-hash-table d)
+   [(d k) (hash-ref (parent-hash-table d)
                     ((custom-hash-make-box d) k)
                     (lambda ()
                       (raise-mismatch-error
                        'dict-ref
                        "no value found for key: "
                        k)))]
-   [(d k fail) (hash-ref (custom-hash-table d)
+   [(d k fail) (hash-ref (parent-hash-table d)
                          ((custom-hash-make-box d) k)
                          fail)]))
 
 (define (custom-hash-set! d k v)
-  (hash-set! (custom-hash-table d) 
+  (hash-set! (parent-hash-table d) 
              ((custom-hash-make-box d) k)
              v))
 
-(define (custom-hash-set d k v)
-  (let ([table (hash-set (custom-hash-table d) 
-                         ((custom-hash-make-box d) k)
-                         v)])
-    (immutable-custom-hash table 
-                           (custom-hash-make-box d))))
-
 (define (custom-hash-remove! d k)
-  (hash-remove! (custom-hash-table d)
+  (hash-remove! (parent-hash-table d)
                 ((custom-hash-make-box d) k)))
 
+(define (custom-hash-set d k v)
+  (let ([table (hash-set (parent-hash-table d) 
+                         ((custom-hash-make-box d) k)
+                         v)])
+    (update-custom-hash d table)))
+
 (define (custom-hash-remove d k)
-  (let ([table (hash-remove (custom-hash-table d)
+  (let ([table (hash-remove (parent-hash-table d)
                             ((custom-hash-make-box d) k))])
-    (immutable-custom-hash table 
-                           (custom-hash-make-box d))))
+    (update-custom-hash d table)))
+
+(define (update-custom-hash d table)
+  (immutable-custom-hash table
+                         (parent-hash-equal-proc d)
+                         (parent-hash-hash-proc d)
+                         (parent-hash-hash2-proc d)))
 
 (define (custom-hash-count d)
-  (hash-count (custom-hash-table d)))
+  (hash-count (parent-hash-table d)))
 
 (define (custom-hash-iterate-first d)
-  (hash-iterate-first (custom-hash-table d)))
+  (hash-iterate-first (parent-hash-table d)))
 
 (define (custom-hash-iterate-next d i)
-  (hash-iterate-next (custom-hash-table d) i))
+  (hash-iterate-next (parent-hash-table d) i))
 
 (define (custom-hash-iterate-key d i)
-  (hash-box-key (hash-iterate-key (custom-hash-table d) i)))
+  (hash-box-key (hash-iterate-key (parent-hash-table d) i)))
 
 (define (custom-hash-iterate-value d i)
-  (hash-iterate-value (custom-hash-table d) i))
+  (hash-iterate-value (parent-hash-table d) i))
 
-(struct custom-hash (table make-box)
+(define (custom-hash-make-box d)
+  (define =? (parent-hash-equal-proc d))
+  (define hc (parent-hash-hash-proc d))
+  (define hc2 (parent-hash-hash2-proc d))
+  (cond
+    [(weak-custom-hash? d)
+     (define ephemerons (weak-custom-hash-ephemerons d))
+     (lambda (x)
+       (define e (hash-ref ephemerons x #f))
+       (define b (and e (ephemeron-value e)))
+       (or b
+           (let ([b (hash-box x =? hc hc2)])
+             (hash-set! ephemerons x (make-ephemeron x b))
+             b)))]
+    [else (lambda (x) (hash-box x =? hc hc2))]))
+
+(struct hash-box (key equal-proc hash-proc hash2-proc)
+  #:methods gen:equal+hash
+  [(define (equal-proc a b recur)
+     (define a.equal? (hash-box-equal-proc a))
+     (define b.equal? (hash-box-equal-proc b))
+     (and (recur a.equal? b.equal?)
+          (recur (hash-box-hash-proc a) (hash-box-hash-proc b))
+          (recur (hash-box-hash2-proc a) (hash-box-hash2-proc b))
+          (cond
+            [(procedure-arity-includes? a.equal? 3)
+             (a.equal? (hash-box-key a) (hash-box-key b) recur)]
+            [else
+             (a.equal? (hash-box-key a) (hash-box-key b))])))
+   (define (hash-proc a recur)
+     (define a.hash-proc (hash-box-hash-proc a))
+     (cond
+       [(procedure-arity-includes? a.hash-proc 2)
+        (a.hash-proc (hash-box-key a) recur)]
+       [else
+        (a.hash-proc (hash-box-key a))]))
+   (define (hash2-proc a recur)
+     (define a.hash2-proc (hash-box-hash2-proc a))
+     (cond
+       [(procedure-arity-includes? a.hash2-proc 2)
+        (a.hash2-proc (hash-box-key a) recur)]
+       [else
+        (a.hash2-proc (hash-box-key a))]))])
+
+(struct parent-hash (table equal-proc hash-proc hash2-proc)
+  #:methods gen:equal+hash
+  [(define (equal-proc a b recur)
+     (and (recur (parent-hash-equal-proc a) (parent-hash-equal-proc b))
+          (recur (parent-hash-hash-proc a) (parent-hash-hash-proc b))
+          (recur (parent-hash-hash2-proc a) (parent-hash-hash2-proc b))
+          (recur (parent-hash-table a) (parent-hash-table b))))
+   (define (hash-proc a recur)
+     (recur (parent-hash-table a)))
+   (define (hash2-proc a recur)
+     (recur (parent-hash-table a)))])
+
+(struct custom-hash parent-hash ()
   #:methods gen:dict
   [(define dict-ref custom-hash-ref)
    (define dict-set! custom-hash-set!)
@@ -472,19 +534,20 @@
    (define dict-iterate-first custom-hash-iterate-first)
    (define dict-iterate-next custom-hash-iterate-next)
    (define dict-iterate-key custom-hash-iterate-key)
-   (define dict-iterate-value custom-hash-iterate-value)]
-  #:methods gen:equal+hash
-  [(define (equal-proc a b recur)
-     (and (recur (custom-hash-make-box a)
-                 (custom-hash-make-box b))
-          (recur (custom-hash-table a)
-                 (custom-hash-table b))))
-   (define (hash-proc a recur)
-     (recur (custom-hash-table a)))
-   (define (hash2-proc a recur)
-     (recur (custom-hash-table a)))])
+   (define dict-iterate-value custom-hash-iterate-value)])
 
-(struct immutable-custom-hash custom-hash ()
+(struct weak-custom-hash parent-hash (ephemerons)
+  #:methods gen:dict
+  [(define dict-ref custom-hash-ref)
+   (define dict-set! custom-hash-set!)
+   (define dict-remove! custom-hash-remove!)
+   (define dict-count custom-hash-count)
+   (define dict-iterate-first custom-hash-iterate-first)
+   (define dict-iterate-next custom-hash-iterate-next)
+   (define dict-iterate-key custom-hash-iterate-key)
+   (define dict-iterate-value custom-hash-iterate-value)])
+
+(struct immutable-custom-hash parent-hash ()
   #:methods gen:dict
   [(define dict-ref custom-hash-ref)
    (define dict-set custom-hash-set)
@@ -494,52 +557,34 @@
    (define dict-iterate-next custom-hash-iterate-next)
    (define dict-iterate-key custom-hash-iterate-key)
    (define dict-iterate-value custom-hash-iterate-value)])
-          
-(define-values (create-custom-hash 
-                create-immutable-custom-hash
-                make-weak-custom-hash)
-  (let ([mk
-         (lambda (hash hash2 =? who make-custom-hash table wrap-make-box)
-           (unless (and (procedure? =?)
-                        (procedure-arity-includes? =? 2))
-             (raise-argument-error who "(any/c any/c . -> . any/c)" =?))
-           (unless (and (procedure? hash)
-                        (procedure-arity-includes? hash 1))
-             (raise-argument-error who "(any/c . -> . exact-integer?)" hash))
-           (unless (and (procedure? hash2)
-                        (procedure-arity-includes? hash2 1))
-             (raise-argument-error who "(any/c . -> . exact-integer?)" hash2))
-           (let ()
-             (struct box hash-box ()
-               #:methods gen:equal+hash
-               [(define (equal-proc a b recur)
-                  (=? (hash-box-key a) (hash-box-key b)))
-                (define (hash-proc v recur)
-                  (hash (hash-box-key v)))
-                (define (hash2-proc v recur)
-                  (hash2 (hash-box-key v)))])
-             (make-custom-hash table (wrap-make-box box))))])
-    (let ([make-custom-hash 
-           (lambda (=? hash [hash2 (lambda (v) 10001)])
-             (mk hash hash2 =? 'make-custom-hash custom-hash (make-hash) values))]
-          [make-immutable-custom-hash 
-           (lambda (=? hash [hash2 (lambda (v) 10001)])
-             (mk hash hash2 =? 'make-immutable-custom-hash immutable-custom-hash #hash() values))]
-          [make-weak-custom-hash 
-           (lambda (=? hash [hash2 (lambda (v) 10001)])
-             (mk hash hash2 =? 'make-weak-custom-hash custom-hash (make-weak-hash)
-                 (lambda (make-box)
-                   (let ([ht (make-weak-hasheq)])
-                     (lambda (v)
-                       (let ([e (hash-ref ht v #f)])
-                         (if e
-                             (ephemeron-value e)
-                             (let ([b (make-box v)])
-                               (hash-set! ht v (make-ephemeron v b))
-                               b))))))))])
-      (values make-custom-hash 
-              make-immutable-custom-hash
-              make-weak-custom-hash))))
+
+(define (make-custom-hash =? [hc default-hc] [hc2 default-hc])
+  (check-hash-procs! 'make-custom-hash =? hc hc2)
+  (custom-hash (make-hash) =? hc hc2))
+
+(define (make-weak-custom-hash =? [hc default-hc] [hc2 default-hc])
+  (check-hash-procs! 'make-weak-custom-hash =? hc hc2)
+  (weak-custom-hash (make-weak-hash) =? hc hc2 (make-weak-hasheq)))
+
+(define (make-immutable-custom-hash =? [hc default-hc] [hc2 default-hc])
+  (check-hash-procs! 'make-immutable-custom-hash =? hc hc2)
+  (immutable-custom-hash (make-immutable-hash) =? hc hc2))
+
+(define (default-hc x) 10001)
+
+(define (check-hash-procs! who =? hc hc2)
+  (unless (and (procedure? =?)
+               (or (procedure-arity-includes? =? 3)
+                   (procedure-arity-includes? =? 2)))
+    (raise-argument-error who "a procedure of 2 or 3 arguments" =?))
+  (unless (and (procedure? hc)
+               (or (procedure-arity-includes? hc 2)
+                   (procedure-arity-includes? hc 1)))
+    (raise-argument-error who "a procedure of 1 or 2 arguments" hc))
+  (unless (and (procedure? hc2)
+               (or (procedure-arity-includes? hc2 2)
+                   (procedure-arity-includes? hc2 1)))
+    (raise-argument-error who "a procedure of 1 or 2 arguments" hc2)))
 
 ;; --------------------
 
@@ -571,8 +616,8 @@
          dict-keys
          dict-values
          dict->list
-         (rename-out [create-custom-hash make-custom-hash]
-                     [create-immutable-custom-hash make-immutable-custom-hash])
+         make-custom-hash
+         make-immutable-custom-hash
          make-weak-custom-hash
 
          (rename-out [:in-dict in-dict]

@@ -10,6 +10,7 @@
          (submod "custom-write.rkt" test)
          (submod "defaults.rkt" test)
          (submod "errors.rkt" test)
+         (submod "fallbacks.rkt" test)
          "syntax-errors.rkt"
          "base-interfaces.rkt"
          "contract.rkt"
@@ -17,5 +18,7 @@
          "poly-contracts.rkt"
          "empty-interface.rkt"
          "top-level.rkt"
-         "pr13737.rkt")
+         "pr13737.rkt"
+         "marked.rkt"
+         "extend.rkt")
 
