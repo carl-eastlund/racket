@@ -136,7 +136,46 @@
        ;; predicate dispatch found in method-impl-list
        (define/with-syntax ((cond-impl ...) ...) marked-generics)
        (define/with-syntax (-name?) (generate-temporaries #'(name?)))
-       #`(begin
+       (define/with-syntax (prop-defn ...)
+         (if prop-defined-already?
+             '() ; we don't need to define it
+             (list
+              #'(begin
+                  (define-values (prop:name -name? get-generics)
+                    (make-struct-type-property
+                     'name
+                     (lambda (generic-vector si)
+                       (unless (vector? generic-vector)
+                         (error 'name
+                                "bad generics table, expecting a vector, got ~e"
+                                generic-vector))
+                       (unless (= (vector-length generic-vector)
+                                  how-many-generics)
+                         (error 'name
+                                "bad generics table, expecting a vector of length ~e, got ~e"
+                                how-many-generics
+                                (vector-length generic-vector)))
+                       (vector (let ([mthd-generic (vector-ref generic-vector generic-idx)])
+                                 (and mthd-generic
+                                      (generic-arity-coerce 'generic mthd-generic)))
+                               ...))
+                     null #t))
+                  ;; overrides the interface predicate so that any of the default
+                  ;; types also answer #t
+                  (define (name? x)
+                    (or (-name? x) (pred? x) ...))))))
+       (define/with-syntax (contract-defn ...)
+         (if (syntax-e #'define-generics-contract)
+             (list #'(define-generics-contract header name? get-generics
+                       (generic generic-idx) ...))
+             ;; don't define a contract when given #f
+             '()))
+       (define/with-syntax (method-impl ...) method-impl-list)
+       (define/with-syntax pred-name
+         (if prop-defined-already?
+             #'(name? this)
+             #'(-name? this)))
+       #'(begin
            (define-syntax name (list #'prop:name #'generic ...))
            ; XXX optimize no kws or opts
            (define generic-arity-coerce
@@ -159,49 +198,19 @@
                     "expected arity" generic-arity-spec))
                  (procedure-reduce-keyword-arity f generic-arity-spec generic-required-kws generic-allowed-kws))))
            ...
-           #,@(if prop-defined-already?
-                  '() ; we don't need to define it
-                  (list
-                   #'(begin
-                       (define-values (prop:name -name? get-generics)
-                         (make-struct-type-property
-                          'name
-                          (lambda (generic-vector si)
-                            (unless (vector? generic-vector)
-                              (error 'name
-                                     "bad generics table, expecting a vector, got ~e"
-                                     generic-vector))
-                            (unless (= (vector-length generic-vector)
-                                       how-many-generics)
-                              (error 'name
-                                     "bad generics table, expecting a vector of length ~e, got ~e"
-                                     how-many-generics
-                                     (vector-length generic-vector)))
-                            (vector (let ([mthd-generic (vector-ref generic-vector generic-idx)])
-                                      (and mthd-generic
-                                           (generic-arity-coerce 'generic mthd-generic)))
-                                    ...))
-                          null #t))
-                       ;; overrides the interface predicate so that any of the default
-                       ;; types also answer #t
-                       (define (name? x)
-                         (or (-name? x) (pred? x) ...)))))
+           prop-defn ...
            ;; Hash table mapping method name symbols to
            ;; whether the given method is implemented
            (define (defined-table this)
              (unless (name? this)
                (raise-argument-error 'defined-table name-str this))
-             (for/hash ([name (in-list '(#,@(map syntax->datum generics)))]
+             (for/hash ([name (in-list '(generic ...))]
                         [gen (in-vector (get-generics this))])
                (values name (not (not gen)))))
            ;; Define the contract that goes with this generic interface
-           #,@(if (syntax-e #'define-generics-contract)
-                  (list #'(define-generics-contract header name? get-generics
-                           (generic generic-idx) ...))
-                  ;; don't define a contract when given #f
-                  '())
+           contract-defn ...
            ;; Define default implementations
-           #,@method-impl-list
+           method-impl ...
            ;; Define generic functions
            (define generic
              (generic-arity-coerce
@@ -216,9 +225,7 @@
                (lambda (kws kws-args . given-args)
                  (define this (list-ref given-args generic-this-idx))
                  (cond
-                  [#,(if prop-defined-already?
-                         #'(name? this)
-                         #'(-name? this))
+                  [pred-name
                    (let ([m (vector-ref (get-generics this) generic-idx)])
                      (if m
                          (keyword-apply m kws kws-args given-args)
