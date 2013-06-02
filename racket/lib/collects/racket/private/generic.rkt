@@ -7,10 +7,17 @@
          (only-in "define-struct.rkt" define/generic)
          (only-in racket/function arity-includes?))
 
-(define-for-syntax (keyword-stx? v)
-  (keyword? (syntax->datum v)))
-
 (provide define-generics define/generic)
+
+(begin-for-syntax
+
+  (define (keyword-stx? v)
+    (keyword? (syntax->datum v)))
+
+  (define (check-identifier! stx)
+    (unless (identifier? stx)
+      (wrong-syntax stx "expected an identifier"))))
+
 (define-syntax (define-generics stx)
   (syntax-case stx () ; can't use syntax-parse, since it depends on us
     ;; keyword arguments must _all_ be provided _in_order_. For the
@@ -36,38 +43,36 @@
                 ;; to avoid defining a contract.
                 #:define-contract define-generics-contract)
         (generic . generic-args) ...)
-     (and (identifier? #'header)
-          (identifier? #'name)
-          (identifier? #'prop:name)
-          (identifier? #'name?)
-          (identifier? #'defined-table)
-          (let ([generics (syntax->list #'(generic ...))])
-            (and (list? generics)
-                 (andmap identifier? generics))))
-     (let* ([generics (syntax->list #'(generic ...))]
-            [name-str (symbol->string (syntax-e #'name?))]
-            [idxs (for/list ([i (in-naturals 0)]
-                             [_ generics])
-                    i)]
-            [prop-defined-already? (syntax-e #'defined-already?)]
-            ;; syntax introducers for each default implementation set
-            ;; these connect the default method definitions to the
-            ;; appropriate dispatch reference in the generic function body
-            [pred-introducers (map (λ (_) (make-syntax-introducer))
-                                   (syntax->list #'(pred? ...)))]
-            ;; mark each set of default methods for a default set and
-            ;; then flatten all of the default definitions
-            [method-impl-list
-             (apply append
-              (map syntax->list
-                   (for/list ([introducer pred-introducers]
-                              [meths (syntax->list #'((impl ...) ...))])
-                     (introducer meths))))]
-            ;; mark each generic function name for a default set
-            [marked-generics
-             (for/list ([generic generics])
-               (for/list ([introducer pred-introducers])
-                 (introducer generic)))])
+     (parameterize ([current-syntax-context stx])
+       (check-identifier! #'header)
+       (check-identifier! #'name)
+       (check-identifier! #'prop:name)
+       (check-identifier! #'name?)
+       (check-identifier! #'defined-table)
+       (for-each check-identifier! (syntax->list #'(generic ...)))
+       (define generics (syntax->list #'(generic ...)))
+       (define name-str (symbol->string (syntax-e #'name?)))
+       (define idxs (for/list ([i (in-naturals 0)] [_ generics]) i))
+       (define prop-defined-already? (syntax-e #'defined-already?))
+       ;; syntax introducers for each default implementation set
+       ;; these connect the default method definitions to the
+       ;; appropriate dispatch reference in the generic function body
+       (define pred-introducers
+         (map (λ (_) (make-syntax-introducer))
+              (syntax->list #'(pred? ...))))
+       ;; mark each set of default methods for a default set and
+       ;; then flatten all of the default definitions
+       (define method-impl-list
+         (apply append
+                (map syntax->list
+                     (for/list ([introducer pred-introducers]
+                                [meths (syntax->list #'((impl ...) ...))])
+                       (introducer meths)))))
+       ;; mark each generic function name for a default set
+       (define marked-generics
+         (for/list ([generic generics])
+           (for/list ([introducer pred-introducers])
+             (introducer generic))))
        (with-syntax ([name-str name-str]
                      [how-many-generics (length idxs)]
                      [(generic-arity-coerce ...) (generate-temporaries #'(generic ...))]
