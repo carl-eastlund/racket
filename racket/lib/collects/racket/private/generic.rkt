@@ -33,6 +33,7 @@
                 ([pred? impl ...]
                  ;; TODO fallthrough?
                  ...)
+                #:fallback (fallback ...)
                 ;; are we being passed an existing struct property? If so,
                 ;; this kw arg is bound to the struct property accessor, and
                 ;; we don't define the struct property
@@ -175,6 +176,8 @@
          (if prop-defined-already?
              #'(name? this)
              #'(-name? this)))
+       (define/with-syntax (fallback-name ...)
+         (generate-temporaries #'(generic ...)))
        #'(begin
            (define-syntax name (list #'prop:name #'generic ...))
            ; XXX optimize no kws or opts
@@ -211,6 +214,10 @@
            contract-defn ...
            ;; Define default implementations
            method-impl ...
+           (define-values (fallback-name ...)
+             (let ([generic #f] ...)
+               fallback ...
+               (values generic ...)))
            ;; Define generic functions
            (define generic
              (generic-arity-coerce
@@ -224,15 +231,14 @@
               (make-keyword-procedure
                (lambda (kws kws-args . given-args)
                  (define this (list-ref given-args generic-this-idx))
-                 (cond
-                  [pred-name
-                   (let ([m (vector-ref (get-generics this) generic-idx)])
-                     (if m
-                         (keyword-apply m kws kws-args given-args)
-                         (error 'generic "not implemented for ~e" this)))]
-                  ;; default cases
-                  [(pred? this) (keyword-apply cond-impl kws kws-args given-args)]
-                  ...
-                  [else (raise-argument-error 'generic name-str this)])))))
+                 (define m
+                   (cond
+                     [pred-name (vector-ref (get-generics this) generic-idx)]
+                     [(pred? this) cond-impl]
+                     ...
+                     [else (raise-argument-error 'generic 'name-str this)]))
+                 (define p (or m fallback-name))
+                 (unless p
+                   (error 'generic "not implemented for ~e" this))
+                 (keyword-apply p kws kws-args given-args)))))
            ...))]))
-

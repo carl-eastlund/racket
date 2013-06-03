@@ -6,6 +6,7 @@
 (define-generics (dict gen:dict prop:dict dict?
                        #:defined-table dict-def-table
                        #:defaults ()
+                       #:fallback ()
                        ;; private version needs all kw args, in order
                        #:prop-defined-already? #f
                        #:define-contract #f)

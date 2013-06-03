@@ -20,21 +20,52 @@
      #'(define-generics name
          #:defined-table defined-table
          (generic . generics-args) ...
-         #:defaults defaults)]
+         #:defaults defaults
+         #:fallback ())]
     [(_ name #:defined-table defined-table (generic . generics-args) ...)
      #'(define-generics name
          #:defined-table defined-table
          (generic . generics-args) ...
-         #:defaults ())]
+         #:defaults ()
+         #:fallback ())]
     [(_ name (generic . generics-args) ...)
      #'(define-generics name
          #:defined-table defined-table
          (generic . generics-args) ...
-         #:defaults ())]
+         #:defaults ()
+         #:fallback ())]
+    [(_ name
+        #:defined-table defined-table
+        (generic . generics-args) ...
+        #:defaults defaults)
+     #'(define-generics name
+          #:defined-table defined-table
+          (generic . generics-args) ...
+          #:defaults defaults
+          #:fallback ())]
+    [(_ name (generic . generics-args) ... #:defaults defaults #:fallback fallback)
+     #'(define-generics name
+         #:defined-table defined-table
+         (generic . generics-args) ...
+         #:defaults defaults
+         #:fallback fallback)]
+    [(_ name #:defined-table defined-table (generic . generics-args) ... #:fallback fallback)
+     #'(define-generics name
+         #:defined-table defined-table
+         (generic . generics-args) ...
+         #:defaults ()
+         #:fallback fallback)]
+    [(_ name (generic . generics-args) ... #:fallback fallback)
+     #'(define-generics name
+         #:defined-table defined-table
+         (generic . generics-args) ...
+         #:defaults ()
+         #:fallback fallback)]
     [(_ name
        #:defined-table defined-table
        (generic . generics-args) ...
-       #:defaults defaults)
+       #:defaults defaults
+       #:fallback fallback)
      (local [(define name-str (symbol->string (syntax-e #'name)))
              (define (id . strs)
                (datum->syntax
@@ -44,6 +75,7 @@
        #'(define-generics/pre (name gen:name prop:name name?
                                     #:defined-table defined-table
                                     #:defaults defaults
+                                    #:fallback fallback
                                     ;; the following are not public
                                     #:prop-defined-already? #f
                                     #:define-contract define-generics-contract)
