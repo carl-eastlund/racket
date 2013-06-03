@@ -589,6 +589,7 @@
     #:projection set-contract-projection))
 
 (define (ht-set-custom-write s port mode)
+  (define ht (ht-set-table s))
   (define recur-print (cond
                        [(not mode) display]
                        [(integer? mode) (lambda (p port) (print p port mode))]
@@ -596,36 +597,37 @@
   (define (print-prefix port)
     (cond
       [(equal? 0 mode)
-       (write-string "(set" port)
+       (write-string "(" port)
        (print-prefix-id port)]
       [else
-       (write-string "#<set" port)
+       (write-string "#<" port)
        (print-prefix-id port)
        (write-string ":" port)]))
   (define (print-prefix-id port)
     (cond
-      [(set-equal? s) (void)]
-      [(set-eqv? s) (write-string "eqv" port)]
-      [(set-eq? s) (write-string "eq" port)]))
+      [(immutable? ht) (write-string "set" port)]
+      [else (write-string "mutable-set" port)])
+    (cond
+      [(hash-equal? ht) (void)]
+      [(hash-eqv? ht) (write-string "eqv" port)]
+      [(hash-eq? ht) (write-string "eq" port)]))
   (define (print-suffix port)
     (if (equal? 0 mode)
         (write-string ")" port)
         (write-string ">" port)))
   (define (print-one-line port)
     (print-prefix port)
-    (set-for-each s 
-                  (lambda (e) 
-                    (write-string " " port)
-                    (recur-print e port)))
+    (for ([e (in-hash-keys ht)]) 
+      (write-string " " port)
+      (recur-print e port))
     (print-suffix port))
   (define (print-multi-line port)
     (let-values ([(line col pos) (port-next-location port)])
       (print-prefix port)
-      (set-for-each s 
-                    (lambda (e) 
-                      (pretty-print-newline port (pretty-print-columns))
-                      (write-string (make-string (add1 col) #\space) port)
-                      (recur-print e port)))
+      (for ([e (in-hash-keys ht)]) 
+        (pretty-print-newline port (pretty-print-columns))
+        (write-string (make-string (add1 col) #\space) port)
+        (recur-print e port))
       (print-suffix port)))
   (cond
    [(and (pretty-printing)
