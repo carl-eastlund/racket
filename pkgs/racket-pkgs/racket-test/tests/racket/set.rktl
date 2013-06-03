@@ -267,14 +267,14 @@
       (test #true subset? ms ms)
 
       (test #true subset? ms msA)
-      (test #false subset? ms ms-sub)
+      (test (null? just-elems) subset? ms ms-sub)
       (test #true subset? ms ms-super)
-      (test (pair? subs) subset? ms ms-not-sub)
+      (test (null? subs) subset? ms ms-not-sub)
 
       (test #true subset? ms sA)
-      (test #false subset? ms s-sub)
+      (test (null? just-elems) subset? ms s-sub)
       (test #true subset? ms s-super)
-      (test (pair? subs) subset? ms s-not-sub)
+      (test (null? subs) subset? ms s-not-sub)
 
       (err/rt-test (subset? ms msB))
       (err/rt-test (subset? ms msC))
@@ -284,14 +284,14 @@
       (test #true subset? s s)
 
       (test #true subset? s msA)
-      (test #false subset? s ms-sub)
+      (test (null? just-elems) subset? s ms-sub)
       (test #true subset? s ms-super)
-      (test (pair? subs) subset? s ms-not-sub)
+      (test (null? subs) subset? s ms-not-sub)
 
       (test #true subset? s sA)
-      (test #false subset? s s-sub)
+      (test (null? just-elems) subset? s s-sub)
       (test #true subset? s s-super)
-      (test (pair? subs) subset? s s-not-sub)
+      (test (null? subs) subset? s s-not-sub)
 
       (err/rt-test (subset? s msB))
       (err/rt-test (subset? s msC))
@@ -305,12 +305,12 @@
       (test #false proper-subset? ms msA)
       (test #false proper-subset? ms ms-sub)
       (test #true proper-subset? ms ms-super)
-      (test #false proper-subset? ms ms-not-sub)
+      (test (and (null? subs) (pair? just-supers)) proper-subset? ms ms-not-sub)
 
       (test #false proper-subset? ms sA)
       (test #false proper-subset? ms s-sub)
       (test #true proper-subset? ms s-super)
-      (test #false proper-subset? ms s-not-sub)
+      (test (and (null? subs) (pair? just-supers)) proper-subset? ms s-not-sub)
 
       (err/rt-test (proper-subset? ms msB))
       (err/rt-test (proper-subset? ms msC))
@@ -322,12 +322,12 @@
       (test #false proper-subset? s msA)
       (test #false proper-subset? s ms-sub)
       (test #true proper-subset? s ms-super)
-      (test #false proper-subset? s ms-not-sub)
+      (test (and (null? subs) (pair? just-supers)) proper-subset? s ms-not-sub)
 
       (test #false proper-subset? s sA)
       (test #false proper-subset? s s-sub)
       (test #true proper-subset? s s-super)
-      (test #false proper-subset? s s-not-sub)
+      (test (and (null? subs) (pair? just-supers)) proper-subset? s s-not-sub)
 
       (err/rt-test (proper-subset? s msB))
       (err/rt-test (proper-subset? s msC))
