@@ -280,7 +280,7 @@
 (define in-set/proc
   (procedure-rename
     (lambda (s)
-      (unless (set? s) (raise-argument-error 'in-set "set?" 0 set))
+      (unless (set? s) (raise-argument-error 'in-set "set?" 0 s))
       (set->stream s))
     'in-set))
 
