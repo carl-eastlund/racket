@@ -15,6 +15,7 @@
 
   set-count
   set-member?
+  set-clear
   set-add
   set-remove
   set->stream
@@ -23,7 +24,6 @@
   set-add-supported?
   set-remove-supported?
 
-  empty-set
   set-empty?
   set-first
   set-rest
@@ -33,10 +33,14 @@
   set=?
   subset?
   proper-subset?
-  set-union simple-set-union
-  set-intersect simple-set-intersect
-  set-subtract simple-set-subtract
-  set-symmetric-difference simple-set-symmetric-difference
+  set-union
+  set-intersect
+  set-subtract
+  set-symmetric-difference
+  simple-set-union
+  simple-set-intersect
+  simple-set-subtract
+  simple-set-symmetric-difference
 
   in-set
   (rename-out [make-set-contract set/c])
@@ -58,11 +62,6 @@
 
 (define (set-remove-supported? s)
   (or (list? s) (supported? s 'set-remove)))
-
-(define (empty-set [s (set)])
-  (unless (and (set? s) (set-clear-supported? s))
-    (raise-argument-error 'empty-set "(and/c set? set-clear-supported?)" 0 s))
-  (set-clear s))
 
 (define (set-empty?-fallback s)
   (stream-empty? (set->stream s)))
