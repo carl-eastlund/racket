@@ -106,6 +106,10 @@
   (and (subset? one two) (not (subset? two one))))
 
 (define (simple-set-union-fallback one two)
+  (unless (set-add-supported? one)
+    (define str "(and/c set? set-add-supported?)")
+    (raise-argument-error 'set-union str 0 one two))
+  (unless (set? two) (raise-argument-error 'set-union "set?" 1 one two))
   (for/fold ([s one]) ([v (in-set two)])
     (set-add s v)))
 
@@ -126,6 +130,10 @@
        (simple-set-union s1 s2))]))
 
 (define (simple-set-intersect-fallback one two)
+  (unless (set-remove-supported? one)
+    (define str "(and/c set? set-remove-supported?)")
+    (raise-argument-error 'set-intersect str 0 one two))
+  (unless (set? two) (raise-argument-error 'set-intersect "set?" 1 one two))
   (for/fold ([s one]) ([v (in-set one)])
     (if (set-member? two v)
         s
@@ -149,6 +157,10 @@
        (simple-set-intersect s1 s2))]))
 
 (define (simple-set-subtract-fallback one two)
+  (unless (set-remove-supported? one)
+    (define str "(and/c set? set-remove-supported?)")
+    (raise-argument-error 'set-subtract str 0 one two))
+  (unless (set? two) (raise-argument-error 'set-subtract "set?" 1 one two))
   (for/fold ([s one]) ([v (in-set two)])
     (set-remove s v)))
 
@@ -170,6 +182,12 @@
        (simple-set-subtract s1 s2))]))
 
 (define (simple-set-symmetric-difference-fallback one two)
+  (unless (and (set-add-supported? one)
+               (set-remove-supported? one))
+    (define str "(and/c set? set-add-supported? set-remove-supported?)")
+    (raise-argument-error 'set-symmetric-difference str 0 one two))
+  (unless (set? two)
+    (raise-argument-error 'set-symmetric-difference "set?" 1 one two))
   (for/fold ([s one]) ([v (in-set two)])
     (if (set-member? s v)
         (set-remove s v)
