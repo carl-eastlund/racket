@@ -467,7 +467,7 @@
 (define (ht-set->stream set)
   (sequence->stream (in-hash-keys (ht-set-table set))))
 
-(define (empty-ht-set set)
+(define (ht-set-clear set)
   (define ht (ht-set-table set))
   (cond
     [(hash-eq? ht) (ht-set (hasheq))]
@@ -593,20 +593,20 @@
    (define set-add ht-set-add)
    (define set-remove ht-set-remove)
    (define set->stream ht-set->stream)
-   (define gen:empty-set empty-ht-set)
-   (define gen:set-empty? ht-set-empty?)
-   (define gen:set-first ht-set-first)
-   (define gen:set-rest ht-set-rest)
-   (define gen:set-map ht-set-map)
-   (define gen:set-for-each ht-set-for-each)
-   (define gen:set->list ht-set->list)
-   (define gen:set=? ht-set=?)
-   (define gen:subset? ht-subset?)
-   (define gen:proper-subset? ht-proper-subset?)
-   (define gen:set-union ht-set-union)
-   (define gen:set-intersect ht-set-intersect)
-   (define gen:set-subtract ht-set-subtract)
-   (define gen:set-symmetric-difference ht-set-symmetric-difference)]
+   (define set-clear ht-set-clear)
+   (define set-empty? ht-set-empty?)
+   (define set-first ht-set-first)
+   (define set-rest ht-set-rest)
+   (define set-map ht-set-map)
+   (define set-for-each ht-set-for-each)
+   (define set->list ht-set->list)
+   (define set=? ht-set=?)
+   (define subset? ht-subset?)
+   (define proper-subset? ht-proper-subset?)
+   (define simple-set-union ht-set-union)
+   (define simple-set-intersect ht-set-intersect)
+   (define simple-set-subtract ht-set-subtract)
+   (define simple-set-symmetric-difference ht-set-symmetric-difference)]
   #:property prop:custom-print-quotable 'never
   #:property prop:custom-write ht-set-custom-write
   #:property prop:equal+hash (list ht-set-equal? ht-set-code ht-set-code)
