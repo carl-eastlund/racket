@@ -765,7 +765,7 @@
   (define ht1 (ht-set-table set1))
   (define ht2 (ht-set-table set2))
   (for ([k (in-hash-keys ht2)])
-    (hash-set! ht2 k #t)))
+    (hash-set! ht1 k #t)))
 
 (define (ht-set-intersect set1 set2)
   (check-ht-set/equiv? 'set-intersect set1 set2)
