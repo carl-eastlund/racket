@@ -28,6 +28,7 @@
   (define-generics (foo gen:foo prop:foo foo?
                         #:defined-table dummy
                         #:defaults ([number? (define (meth foo #:kw kw) kw)])
+                        #:fallback ()
                         #:prop-defined-already? foo-accessor
                         #:define-contract #f)
     (meth foo #:kw kw))
