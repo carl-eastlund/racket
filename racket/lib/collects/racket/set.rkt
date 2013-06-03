@@ -952,42 +952,44 @@
     (raise-argument-error 'list->mutable-seteqv "list?" 0 elems))
   (apply mutable-seteqv elems))
 
-(define-syntax-rule (define-for for/fold/derived for/set set)
-  (define-syntax (for/set stx)
-    (...
-     (syntax-case stx ()
-       [(_ bindings . body)
-        (with-syntax ([((pre-body ...) post-body) (split-for-body stx #'body)])
-          (quasisyntax/loc stx
-            (for/fold/derived #,stx ([s (set)]) bindings
-              pre-body
-              ...
-              (set-add s (let () . post-body)))))]))))
+(define-syntax-rule (define-for for/fold/derived for/set hash)
+  (...
+    (define-syntax (for/set stx)
+      (syntax-case stx ()
+        [(_ bindings . body)
+         (with-syntax ([((pre-body ...) post-body) (split-for-body stx #'body)]
+                       [source stx])
+           (syntax/loc stx
+             (immutable-ht-set
+              (for/fold/derived source ([ht (hash)]) bindings
+                pre-body ...
+                (hash-set ht (let () . post-body) #t)))))]))))
 
-(define-for for/fold/derived for/set set)
-(define-for for*/fold/derived for*/set set)
-(define-for for/fold/derived for/seteq seteq)
-(define-for for*/fold/derived for*/seteq seteq)
-(define-for for/fold/derived for/seteqv seteqv)
-(define-for for*/fold/derived for*/seteqv seteqv)
+(define-for for/fold/derived for/set hash)
+(define-for for*/fold/derived for*/set hash)
+(define-for for/fold/derived for/seteq hasheq)
+(define-for for*/fold/derived for*/seteq hasheq)
+(define-for for/fold/derived for/seteqv hasheqv)
+(define-for for*/fold/derived for*/seteqv hasheqv)
 
-(define-syntax-rule (define-for-mutable for/fold/derived for/set set)
-  (define-syntax (for/set stx)
-    (...
-     (syntax-case stx ()
-       [(_ bindings . body)
-        (with-syntax ([((pre-body ...) post-body) (split-for-body stx #'body)])
-          (quasisyntax/loc stx
-            (let ([s (set)])
-              (for/fold/derived #,stx () bindings
-                pre-body
-                ...
-                (set-add! s (let () . post-body)))
-              s)))]))))
+(define-syntax-rule (define-for-mutable for/fold/derived for/set make-hash)
+  (...
+    (define-syntax (for/set stx)
+      (syntax-case stx ()
+        [(_ bindings . body)
+         (with-syntax ([((pre-body ...) post-body) (split-for-body stx #'body)]
+                       [source stx])
+           (syntax/loc stx
+             (let ([ht (make-hash)])
+               (for/fold/derived source () bindings
+                 pre-body ...
+                 (hash-set! ht (let () . post-body) #t)
+                 (values))
+               (mutable-ht-set ht))))]))))
 
-(define-for-mutable for/fold/derived for/mutable-set mutable-set)
-(define-for-mutable for*/fold/derived for*/mutable-set mutable-set)
-(define-for-mutable for/fold/derived for/mutable-seteq mutable-seteq)
-(define-for-mutable for*/fold/derived for*/mutable-seteq mutable-seteq)
-(define-for-mutable for/fold/derived for/mutable-seteqv mutable-seteqv)
-(define-for-mutable for*/fold/derived for*/mutable-seteqv mutable-seteqv)
+(define-for-mutable for/fold/derived for/mutable-set make-hash)
+(define-for-mutable for*/fold/derived for*/mutable-set make-hash)
+(define-for-mutable for/fold/derived for/mutable-seteq make-hasheq)
+(define-for-mutable for*/fold/derived for*/mutable-seteq make-hasheq)
+(define-for-mutable for/fold/derived for/mutable-seteqv make-hasheqv)
+(define-for-mutable for*/fold/derived for*/mutable-seteqv make-hasheqv)
