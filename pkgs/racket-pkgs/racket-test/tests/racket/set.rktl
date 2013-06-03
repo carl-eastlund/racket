@@ -200,6 +200,180 @@
 
   (void))
 
+(let ()
+
+  (define (test=? result s1 s2)
+    (test result equal? s1 s2)
+    (test result set=? s1 s2))
+
+  (define (t mset-A mset-B mset-C set-A set-B set-C)
+
+    (define (t1 ms s subs just-elems just-supers)
+
+      ;; Construct sets for comparison:
+
+      (define elems (append subs just-elems))
+      (define supers (append elems just-supers))
+      (define not-subs (append just-elems just-supers))
+      (define msA (apply mset-A elems))
+      (define msB (apply mset-B elems))
+      (define msC (apply mset-C elems))
+      (define sA (apply set-A elems))
+      (define sB (apply set-B elems))
+      (define sC (apply set-C elems))
+      (define ms-sub (apply mset-A subs))
+      (define ms-super (apply mset-A supers))
+      (define ms-not-sub (apply mset-A not-subs))
+      (define s-sub (apply set-A subs))
+      (define s-super (apply set-A supers))
+      (define s-not-sub (apply set-A not-subs))
+
+      ;; Test equality:
+
+      (test=? #true ms msA)
+      (test=? #false ms msB)
+      (test=? #false ms msC)
+      (test=? #false ms sA)
+      (test=? #false ms sB)
+      (test=? #false ms sC)
+      (test=? #true ms ms)
+      (test=? #false ms ms-sub)
+      (test=? #false ms ms-super)
+      (test=? #false ms ms-not-sub)
+
+      (test=? #false s msA)
+      (test=? #false s msB)
+      (test=? #false s msC)
+      (test=? #true s sA)
+      (test=? #false s sB)
+      (test=? #false s sC)
+      (test=? #true s s)
+      (test=? #false s s-sub)
+      (test=? #false s s-super)
+      (test=? #false s s-not-sub)
+
+      ;; Test membership:
+
+      (for ([elem (in-list elems)])
+        (test #true set-member? ms elem)
+        (test #true set-member? s elem))
+
+      (for ([elem (in-list just-supers)])
+        (test #false set-member? ms elem)
+        (test #false set-member? s elem))
+
+      ;; Test subset:
+
+      (test #true subset? ms ms)
+
+      (test #true subset? ms msA)
+      (test #false subset? ms ms-sub)
+      (test #true subset? ms ms-super)
+      (test #false subset? ms ms-not-sub)
+
+      (test #true subset? ms sA)
+      (test #false subset? ms s-sub)
+      (test #true subset? ms s-super)
+      (test #false subset? ms s-not-sub)
+
+      (err/rt-test (subset? ms msB))
+      (err/rt-test (subset? ms msC))
+      (err/rt-test (subset? ms sB))
+      (err/rt-test (subset? ms sC))
+
+      (test #true subset? s s)
+
+      (test #true subset? s msA)
+      (test #false subset? s ms-sub)
+      (test #true subset? s ms-super)
+      (test #false subset? s ms-not-sub)
+
+      (test #true subset? s sA)
+      (test #false subset? s s-sub)
+      (test #true subset? s s-super)
+      (test #false subset? s s-not-sub)
+
+      (err/rt-test (subset? s msB))
+      (err/rt-test (subset? s msC))
+      (err/rt-test (subset? s sB))
+      (err/rt-test (subset? s sC))
+
+      ;; Test proper subset:
+
+      (test #false proper-subset? ms ms)
+
+      (test #false proper-subset? ms msA)
+      (test #false proper-subset? ms ms-sub)
+      (test #true proper-subset? ms ms-super)
+      (test #false proper-subset? ms ms-not-sub)
+
+      (test #false proper-subset? ms sA)
+      (test #false proper-subset? ms s-sub)
+      (test #true proper-subset? ms s-super)
+      (test #false proper-subset? ms s-not-sub)
+
+      (err/rt-test (proper-subset? ms msB))
+      (err/rt-test (proper-subset? ms msC))
+      (err/rt-test (proper-subset? ms sB))
+      (err/rt-test (proper-subset? ms sC))
+
+      (test #false proper-subset? s s)
+
+      (test #false proper-subset? s msA)
+      (test #false proper-subset? s ms-sub)
+      (test #true proper-subset? s ms-super)
+      (test #false proper-subset? s ms-not-sub)
+
+      (test #false proper-subset? s sA)
+      (test #false proper-subset? s s-sub)
+      (test #true proper-subset? s s-super)
+      (test #false proper-subset? s s-not-sub)
+
+      (err/rt-test (proper-subset? s msB))
+      (err/rt-test (proper-subset? s msC))
+      (err/rt-test (proper-subset? s sB))
+      (err/rt-test (proper-subset? s sC))
+
+      (void))
+
+    (define ms (mset-A 1 2 3))
+    (define s0 (set-A 1 2 3))
+    (t1 ms s0 '(1 2) '(3) '(4))
+
+    (set-remove! ms 3)
+    (define s1 (set-remove s0 3))
+    (t1 ms s1 '(1) '(2) '(3 4))
+
+    (set-add! ms 4)
+    (define s2 (set-add s1 4))
+    (t1 ms s2 '(1) '(2 4) '(3))
+
+    (set-clear! ms)
+    (define s3 (set-clear s2))
+    (t1 ms s3 '() '() '(1 2 3 4))
+
+    (set-union! ms (mset-A 1 2) (mset-A 2 3))
+    (define s4 (set-union s3 (set-A 1 2) (set-A 2 3)))
+    (t1 ms s4 '(2) '(1 3) '(4))
+
+    (set-intersect! ms (mset-A 1 2) (mset-A 2 3))
+    (define s5 (set-intersect s4 (set-A 1 2) (set-A 2 3)))
+    (t1 ms s5 '() '(2) '(1 3 4))
+
+    (set-symmetric-difference! ms (mset-A 1 2) (mset-A 2 3))
+    (define s6 (set-symmetric-difference s5 (set-A 1 2) (set-A 2 3)))
+    (t1 ms s6 '(1 3) '(2) '(4))
+
+    (set-subtract! ms (mset-A 1 4) (mset-A 2 4))
+    (define s7 (set-subtract s6 (set-A 1 4) (set-A 2 4)))
+    (t1 ms s7 '(3) '() '(1 2 4))
+
+    (void))
+
+  (t mutable-set mutable-seteqv mutable-seteq set seteqv seteq)
+  (t mutable-seteqv mutable-seteq mutable-set seteqv seteq set)
+  (t mutable-seteq mutable-set mutable-seteqv seteq set seteqv))
+
 (test "#<set: 1>" 
       'print-set1
       (let ([sp (open-output-string)])
