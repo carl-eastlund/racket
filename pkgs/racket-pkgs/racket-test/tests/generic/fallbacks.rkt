@@ -12,7 +12,6 @@
   ([number?
     (define decrement sub1)
     (define is-zero? zero?)
-    (define is-even? even?)
     (define is-odd? odd?)])
   #:fallbacks
   [(define (is-even? x) (is-even?-fallback x))
@@ -103,6 +102,7 @@
 
   (run-tests
     (test-suite "fallbacks"
+      (tests "built-in" values)
       (tests "peano" make-peano)
       (tests "binary" make-binary)
       (tests "parity" make-parity)
