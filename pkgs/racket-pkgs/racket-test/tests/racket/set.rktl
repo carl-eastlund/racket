@@ -237,9 +237,9 @@
       (test=? #false ms sB)
       (test=? #false ms sC)
       (test=? #true ms ms)
-      (test=? #false ms ms-sub)
-      (test=? #false ms ms-super)
-      (test=? #false ms ms-not-sub)
+      (test=? (null? just-elems) ms ms-sub)
+      (test=? (null? just-supers) ms ms-super)
+      (test=? (and (null? subs) (null? just-supers)) ms ms-not-sub)
 
       (test=? #false s msA)
       (test=? #false s msB)
@@ -248,9 +248,9 @@
       (test=? #false s sB)
       (test=? #false s sC)
       (test=? #true s s)
-      (test=? #false s s-sub)
-      (test=? #false s s-super)
-      (test=? #false s s-not-sub)
+      (test=? (null? just-elems) s s-sub)
+      (test=? (null? just-supers) s s-super)
+      (test=? (and (null? subs) (null? just-supers)) s s-not-sub)
 
       ;; Test membership:
 
@@ -269,12 +269,12 @@
       (test #true subset? ms msA)
       (test #false subset? ms ms-sub)
       (test #true subset? ms ms-super)
-      (test #false subset? ms ms-not-sub)
+      (test (pair? subs) subset? ms ms-not-sub)
 
       (test #true subset? ms sA)
       (test #false subset? ms s-sub)
       (test #true subset? ms s-super)
-      (test #false subset? ms s-not-sub)
+      (test (pair? subs) subset? ms s-not-sub)
 
       (err/rt-test (subset? ms msB))
       (err/rt-test (subset? ms msC))
@@ -286,12 +286,12 @@
       (test #true subset? s msA)
       (test #false subset? s ms-sub)
       (test #true subset? s ms-super)
-      (test #false subset? s ms-not-sub)
+      (test (pair? subs) subset? s ms-not-sub)
 
       (test #true subset? s sA)
       (test #false subset? s s-sub)
       (test #true subset? s s-super)
-      (test #false subset? s s-not-sub)
+      (test (pair? subs) subset? s s-not-sub)
 
       (err/rt-test (subset? s msB))
       (err/rt-test (subset? s msC))
@@ -358,6 +358,7 @@
 
     (set-intersect! ms (mset-A 1 2) (mset-A 2 3))
     (define s5 (set-intersect s4 (set-A 1 2) (set-A 2 3)))
+    (t1 ms s5 '(2) '() '(1 3 4))
     (t1 ms s5 '() '(2) '(1 3 4))
 
     (set-symmetric-difference! ms (mset-A 1 2) (mset-A 2 3))
@@ -367,6 +368,7 @@
     (set-subtract! ms (mset-A 1 4) (mset-A 2 4))
     (define s7 (set-subtract s6 (set-A 1 4) (set-A 2 4)))
     (t1 ms s7 '(3) '() '(1 2 4))
+    (t1 ms s7 '() '(3) '(1 2 4))
 
     (void))
 
