@@ -128,14 +128,18 @@
 
 ;; redirect for use with chaperone-vector
 (define ((method-table-redirect ctc blame) vec idx val)
-  (define id+ctc-map (base-generic-instance/c-id+ctc-map ctc))
-  (define maybe-id+ctc (hash-ref id+ctc-map idx #f))
-  (cond [maybe-id+ctc
-         (define id (car maybe-id+ctc))
-         (define proj (cdr maybe-id+ctc))
-         (define blame-string (format "the ~a method of" id))
-         ((proj (blame-add-context blame blame-string)) val)]
-        [else val]))
+  (cond
+    [(eq? val #f) #f]
+    [else
+     (define id+ctc-map (base-generic-instance/c-id+ctc-map ctc))
+     (define maybe-id+ctc (hash-ref id+ctc-map idx #f))
+     (cond
+       [maybe-id+ctc
+        (define id (car maybe-id+ctc))
+        (define proj (cdr maybe-id+ctc))
+        (define blame-string (format "the ~a method of" id))
+        ((proj (blame-add-context blame blame-string)) val)]
+       [else val])]))
 
 ;; projection for generic methods
 (define ((generic-instance/c-proj proxy-struct proxy-vector) ctc)
@@ -166,9 +170,9 @@
          (define method-map (base-generic-instance/c-method-map ctc))
          ;; do sub-contract first-order checks
          (for/and ([id ids] [ctc ctcs])
-           (contract-first-order-passes?
-            ctc
-            (vector-ref method-table (hash-ref method-map id))))]
+           (define v (vector-ref method-table (hash-ref method-map id)))
+           (or (eq? v #f)
+               (contract-first-order-passes? ctc v)))]
         [else #f]))
 
 ;; name        - for building ctc name
