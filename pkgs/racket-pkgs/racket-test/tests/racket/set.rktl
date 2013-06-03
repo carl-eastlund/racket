@@ -401,9 +401,26 @@
 (test (set 1 2 3) 'for/set (for/set ([i '(0 1 2 3 4)]) 
                                     #:break (= i 3)
                                     (add1 i)))
+
 (test (set 1 2 3) 'for/set (for/set ([i '(0 1 2 3 4)]) 
                                     #:final (= i 2)
                                     (add1 i)))
+
+(test (mutable-set 1 2 3)
+      'for/mutable-set
+      (for/mutable-set ([i '(0 1 2)]) (add1 i)))
+
+(test (mutable-set 1 2 3)
+      'for/mutable-set
+      (for/mutable-set ([i '(0 1 2 3 4)]) 
+                       #:break (= i 3)
+                       (add1 i)))
+
+(test (mutable-set 1 2 3)
+      'for/mutable-set
+      (for/mutable-set ([i '(0 1 2 3 4)]) 
+                       #:final (= i 2)
+                       (add1 i)))
 
 ;; ----------------------------------------
 
