@@ -19,25 +19,24 @@
   set-remove
   set->stream
 
-  empty-set-supported?
+  set-clear-supported?
   set-add-supported?
   set-remove-supported?
 
-  empty-set gen:empty-set
-  set-empty? gen:set-empty?
-  set-first gen:set-first
-  set-rest gen:set-rest
-  set-map gen:set-map
-  set-for-each gen:set-for-each
-  set->list gen:set->list
-  set=? gen:set=?
-  subset? gen:subset?
-  proper-subset? gen:proper-subset?
-  set-union gen:set-union
-  set-intersect gen:set-intersect
-  set-subtract gen:set-subtract
-  set-symmetric-difference
-  gen:set-symmetric-difference
+  empty-set
+  set-empty?
+  set-first
+  set-rest
+  set-map
+  set-for-each
+  set->list
+  set=?
+  subset?
+  proper-subset?
+  set-union simple-set-union
+  set-intersect simple-set-intersect
+  set-subtract simple-set-subtract
+  set-symmetric-difference simple-set-symmetric-difference
 
   in-set
   (rename-out [make-set-contract set/c])
@@ -46,65 +45,13 @@
   set-eq? seteq list->seteq for/seteq for*/seteq
   set-eqv? seteqv list->seteqv for/seteqv for*/seteqv)
 
-(define-generics set
-  #:defined-table set-supported
-  (set-count set)
-  (set-member? set x)
-  (set-add set x)
-  (set-remove set x)
-  (set->stream set)
-  (gen:empty-set set)
-  (gen:set-empty? set)
-  (gen:set-first set)
-  (gen:set-rest set)
-  (gen:set-map set proc)
-  (gen:set-for-each set proc)
-  (gen:set->list set)
-  (gen:set=? set set2)
-  (gen:subset? set set2)
-  (gen:proper-subset? set set2)
-  (gen:set-union set set2)
-  (gen:set-intersect set set2)
-  (gen:set-subtract set set2)
-  (gen:set-symmetric-difference set set2)
-  #:defaults
-  ([list?
-    (define set-count length)
-    (define (set-member? lst x) (if (member x lst) #t #f))
-    (define (set-add lst x) (if (member x lst) lst (cons x lst)))
-    (define (set-remove lst x) (remove* (list x) lst))
-    (define set->stream values)]))
-
-(define (generic-set/c c)
-  (define set-of-c (recursive-contract (make-set-contract c) #:chaperone))
-  (set/c
-    [set-count (-> set? exact-nonnegative-integer?)]
-    [set-member? (-> set? c boolean?)]
-    [set-add (-> set? c set-of-c)]
-    [set-remove (-> set? c set-of-c)]
-    [set->stream (-> set? stream?)]
-    [gen:empty-set (-> set? set-of-c)]
-    [gen:set-first (-> set? c)]
-    [gen:set-rest (-> set? set-of-c)]
-    [gen:set-map (-> set? (-> c any/c) list?)]
-    [gen:set-for-each (-> set? (-> c any) any)]
-    [gen:set->list (-> set? (listof c))]
-    [gen:set=? (-> set? set-of-c boolean?)]
-    [gen:subset? (-> set? set-of-c boolean?)]
-    [gen:proper-subset? (-> set? set-of-c boolean?)]
-    [gen:set-union (-> set? set-of-c boolean?)]
-    [gen:set-intersect (-> set? set-of-c set-of-c)]
-    [gen:set-subtract (-> set? set-of-c set-of-c)]
-    [gen:set-symmetric-difference
-     (-> set? set-of-c set-of-c)]))
-
 (define (supported? set sym)
   (cond
     [(list? set) #f]
     [else (hash-ref (set-supported set) sym)]))
 
-(define (empty-set-supported? s)
-  (or (list? s) (supported? 'gen:empty-set)))
+(define (set-clear-supported? s)
+  (or (list? s) (supported? 'set-clear)))
 
 (define (set-add-supported? s)
   (or (list? s) (supported? s 'set-add)))
@@ -113,100 +60,55 @@
   (or (list? s) (supported? s 'set-remove)))
 
 (define (empty-set [s (set)])
-  (unless (and (set? s) (empty-set-supported? s))
-    (raise-argument-error 'empty-set "(and/c set? empty-set-supported?)" 0 s))
-  (cond
-    [(list? s) '()]
-    [else (gen:empty-set s)]))
+  (unless (and (set? s) (set-clear-supported? s))
+    (raise-argument-error 'empty-set "(and/c set? set-clear-supported?)" 0 s))
+  (set-clear s))
 
-(define (set-empty? s)
-  (unless (set? s) (raise-argument-error 'set-empty? "set?" 0 s))
-  (cond
-    [(list? s) (null? s)]
-    [(supported? s 'gen:set-empty?)
-     (gen:set-empty? s)]
-    [else (stream-empty? (set->stream s))]))
+(define (set-empty?-fallback s)
+  (stream-empty? (set->stream s)))
 
-(define (set-first s)
-  (unless (set? s) (raise-argument-error 'set-first "set?" 0 s))
-  (cond
-    [(list? s) (car s)]
-    [(supported? s 'gen:set-first)
-     (gen:set-first s)]
-    [else
-     (stream-first (set->stream s))]))
+(define (set-first-fallback s)
+  (stream-first (set->stream s)))
 
-(define (set-rest s)
-  (unless (and (set? s) (set-remove-supported? s))
+(define (set-rest-fallback s)
+  (unless (set-remove-supported? s)
     (raise-argument-error 'set-rest "(and/c set? set-remove-supported?)" 0 s))
-  (cond
-    [(list? s) (cdr s)]
-    [(supported? s 'gen:set-rest)
-     (gen:set-rest s)]
-    [else
-     (set-remove s (set-first s))]))
+  (set-remove s (set-first s)))
 
-(define (set-for-each set proc)
-  (unless (set? set) (raise-argument-error 'set-for-each "set?" 0 set proc))
+(define (set-for-each-fallback set proc)
   (unless (and (procedure? proc)
                (procedure-arity-includes? proc 1))
     (raise-argument-error 'set-for-each "(any/c . -> . any/c)" 1 set proc))
-  (cond
-    [(list? set) (for-each proc set)]
-    [(supported? set 'gen:set-for-each)
-     (gen:set-for-each set proc)]
-    [else
-     (for ([v (in-set set)])
-       (proc v))]))
+  (for ([v (in-set set)])
+    (proc v)))
 
-(define (set-map set proc)
-  (unless (set? set) (raise-argument-error 'set-map "set?" 0 set proc))
+(define (set-map-fallback set proc)
   (unless (and (procedure? proc)
                (procedure-arity-includes? proc 1))
     (raise-argument-error 'set-map "(any/c . -> . any/c)" 1 set proc))
-  (cond
-    [(list? set) (map proc set)]
-    [(supported? set 'gen:set-map)
-     (gen:set-map set proc)]
-    [else
-     (for/list ([v (in-set set)])
-       (proc v))]))
+  (for/list ([v (in-set set)])
+    (proc v)))
 
-(define (set->list set)
-  (unless (set? set) (raise-argument-error 'set->list "set?" 0 set))
-  (cond
-    [(list? set) set]
-    [(supported? set 'gen:set->list)
-     (gen:set->list set)]
-    [else
-     (for/list ([v (in-set set)])
-       v)]))
+(define (set->list-fallback set)
+  (for/list ([v (in-set set)])
+    v))
 
-(define (subset? one two)
-  (unless (set? one) (raise-argument-error 'subset? "set?" 0 one two))
+(define (subset?-fallback one two)
   (unless (set? two) (raise-argument-error 'subset? "set?" 1 one two))
-  (cond
-    [(supported? one 'gen:subset?)
-     (gen:subset? one two)]
-    [else
-     (for/and ([v (in-set one)])
-       (set-member? two v))]))
+  (for/and ([v (in-set one)])
+    (set-member? two v)))
 
-(define (set=? one two)
-  (unless (set? one) (raise-argument-error 'set=? "set?" 0 one two))
+(define (set=?-fallback one two)
   (unless (set? two) (raise-argument-error 'set=? "set?" 1 one two))
-  (cond
-    [(supported? one 'gen:set=?)
-     (gen:set=? one two)]
-    [else (and (subset? one two) (subset? two one))]))
+  (and (subset? one two) (subset? two one)))
 
-(define (proper-subset? one two)
-  (unless (set? one) (raise-argument-error 'proper-subset? "set?" 0 one two))
+(define (proper-subset?-fallback one two)
   (unless (set? two) (raise-argument-error 'proper-subset? "set?" 1 one two))
-  (cond
-    [(supported? one 'gen:proper-subset?)
-     (gen:proper-subset? one two)]
-    [else (and (subset? one two) (not (subset? two one)))]))
+  (and (subset? one two) (not (subset? two one))))
+
+(define (simple-set-union-fallback one two)
+  (for/fold ([s one]) ([v (in-set two)])
+    (set-add s v)))
 
 (define set-union
   (case-lambda
@@ -216,18 +118,19 @@
     [(one two)
      (unless (set? one) (raise-argument-error 'set-union? "set?" 0 one two))
      (unless (set? two) (raise-argument-error 'set-union? "set?" 1 one two))
-     (cond
-       [(supported? one 'gen:set-union)
-        (gen:set-union one two)]
-       [else
-        (for/fold ([s one]) ([v (in-set two)])
-          (set-add s v))])]
+     (simple-set-union one two)]
     [(s . sets)
      (unless (set? s) (apply raise-argument-error 'set-union "set?" 0 s sets))
      (for/fold ([s1 s]) ([s2 (in-list sets)] [i (in-naturals 1)])
        (unless (set? s2)
          (apply raise-argument-error 'set-union "set?" i s sets))
-       (set-union s1 s2))]))
+       (simple-set-union s1 s2))]))
+
+(define (simple-set-intersect-fallback one two)
+  (for/fold ([s one]) ([v (in-set one)])
+    (if (set-member? two v)
+        s
+        (set-remove s v))))
 
 (define set-intersect
   (case-lambda
@@ -237,21 +140,18 @@
     [(one two)
      (unless (set? one) (raise-argument-error 'set-intersect? "set?" 0 one two))
      (unless (set? two) (raise-argument-error 'set-intersect? "set?" 1 one two))
-     (cond
-       [(supported? one 'gen:set-intersect)
-        (gen:set-intersect one two)]
-       [else
-        (for/fold ([s one]) ([v (in-set one)])
-          (if (set-member? two v)
-              s
-              (set-remove s v)))])]
+     (simple-set-intersect one two)]
     [(s . sets)
      (unless (set? s)
        (apply raise-argument-error 'set-intersect "set?" 0 s sets))
      (for/fold ([s1 s]) ([s2 (in-list sets)] [i (in-naturals 1)])
        (unless (set? s2)
          (apply raise-argument-error 'set-intersect "set?" i s sets))
-       (set-intersect s1 s2))]))
+       (simple-set-intersect s1 s2))]))
+
+(define (simple-set-subtract-fallback one two)
+  (for/fold ([s one]) ([v (in-set two)])
+    (set-remove s v)))
 
 (define set-subtract
   (case-lambda
@@ -261,19 +161,20 @@
     [(one two)
      (unless (set? one) (raise-argument-error 'set-subtract? "set?" 0 one two))
      (unless (set? two) (raise-argument-error 'set-subtract? "set?" 1 one two))
-     (cond
-       [(supported? one 'gen:set-subtract)
-        (gen:set-subtract one two)]
-       [else
-        (for/fold ([s one]) ([v (in-set two)])
-          (set-remove s v))])]
+     (simple-set-subtract one two)]
     [(s . sets)
      (unless (set? s)
        (apply raise-argument-error 'set-subtract "set?" 0 s sets))
      (for/fold ([s1 s]) ([s2 (in-list sets)] [i (in-naturals 1)])
        (unless (set? s2)
          (apply raise-argument-error 'set-subtract "set?" i s sets))
-       (set-subtract s1 s2))]))
+       (simple-set-subtract s1 s2))]))
+
+(define (simple-set-symmetric-difference-fallback one two)
+  (for/fold ([s one]) ([v (in-set two)])
+    (if (set-member? s v)
+        (set-remove s v)
+        (set-add s v))))
 
 (define set-symmetric-difference
   (case-lambda
@@ -286,21 +187,88 @@
        (raise-argument-error 'set-symmetric-difference? "set?" 0 one two))
      (unless (set? two)
        (raise-argument-error 'set-symmetric-difference? "set?" 1 one two))
-     (cond
-       [(supported? one 'gen:set-symmetric-difference)
-        (gen:set-symmetric-difference one two)]
-       [else
-        (for/fold ([s one]) ([v (in-set two)])
-          (if (set-member? s v)
-              (set-remove s v)
-              (set-add s v)))])]
+     (simple-set-symmetric-difference one two)]
     [(s . sets)
      (unless (set? s)
        (apply raise-argument-error 'set-symmetric-difference "set?" 0 s sets))
      (for/fold ([s1 s]) ([s2 (in-list sets)] [i (in-naturals 1)])
        (unless (set? s2)
          (apply raise-argument-error 'set-symmetric-difference "set?" i s sets))
-       (set-symmetric-difference s1 s2))]))
+       (simple-set-symmetric-difference s1 s2))]))
+
+(define-generics set
+  #:defined-table set-supported
+  (set-count set)
+  (set-member? set x)
+  (set-add set x)
+  (set-remove set x)
+  (set->stream set)
+  (set-clear set)
+  (set-empty? set)
+  (set-first set)
+  (set-rest set)
+  (set-map set proc)
+  (set-for-each set proc)
+  (set->list set)
+  (set=? set set2)
+  (subset? set set2)
+  (proper-subset? set set2)
+  (simple-set-union set set2)
+  (simple-set-intersect set set2)
+  (simple-set-subtract set set2)
+  (simple-set-symmetric-difference set set2)
+  #:defaults
+  ([list?
+    (define set-count length)
+    (define (set-member? lst x) (if (member x lst) #t #f))
+    (define (set-add lst x) (if (member x lst) lst (cons x lst)))
+    (define (set-remove lst x) (remove* (list x) lst))
+    (define set->stream values)
+    (define (set-clear lst) '())
+    (define set-empty? null?)
+    (define set-first car)
+    (define set-rest cdr)
+    (define (set-map lst proc) (map proc lst))
+    (define (set-for-each lst proc) (for-each proc lst))
+    (define set->list values)])
+  #:fallbacks
+  [(define set-empty? set-empty?-fallback)
+   (define set-first set-first-fallback)
+   (define set-rest set-rest-fallback)
+   (define set-map set-map-fallback)
+   (define set-for-each set-for-each-fallback)
+   (define set->list set->list-fallback)
+   (define set=? set=?-fallback)
+   (define subset? subset?-fallback)
+   (define proper-subset? proper-subset?-fallback)
+   (define simple-set-union simple-set-union-fallback)
+   (define simple-set-intersect simple-set-intersect-fallback)
+   (define simple-set-subtract simple-set-subtract-fallback)
+   (define simple-set-symmetric-difference
+     simple-set-symmetric-difference-fallback)])
+
+(define (generic-set/c c)
+  (define set-of-c (recursive-contract (make-set-contract c) #:chaperone))
+  (set/c
+    [set-count (-> set? exact-nonnegative-integer?)]
+    [set-member? (-> set? c boolean?)]
+    [set-add (-> set? c set-of-c)]
+    [set-remove (-> set? c set-of-c)]
+    [set->stream (-> set? stream?)]
+    [set-clear (-> set? set-of-c)]
+    [set-first (-> set? c)]
+    [set-rest (-> set? set-of-c)]
+    [set-map (-> set? (-> c any/c) list?)]
+    [set-for-each (-> set? (-> c any) any)]
+    [set->list (-> set? (listof c))]
+    [set=? (-> set? set-of-c boolean?)]
+    [subset? (-> set? set-of-c boolean?)]
+    [proper-subset? (-> set? set-of-c boolean?)]
+    [simple-set-union (-> set? set-of-c boolean?)]
+    [simple-set-intersect (-> set? set-of-c set-of-c)]
+    [simple-set-subtract (-> set? set-of-c set-of-c)]
+    [simple-set-symmetric-difference
+     (-> set? set-of-c set-of-c)]))
 
 (define-sequence-syntax in-set
   (lambda () #'in-set/proc)
