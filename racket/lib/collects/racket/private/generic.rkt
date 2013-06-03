@@ -199,7 +199,9 @@
                     "method" method-name
                     "given arity" (procedure-arity f)
                     "expected arity" generic-arity-spec))
-                 (procedure-reduce-keyword-arity f generic-arity-spec generic-required-kws generic-allowed-kws))))
+                 (procedure-rename
+                  (procedure-reduce-keyword-arity f generic-arity-spec generic-required-kws generic-allowed-kws)
+                  method-name))))
            ...
            prop-defn ...
            ;; Hash table mapping method name symbols to
