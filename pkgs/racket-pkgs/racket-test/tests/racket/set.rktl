@@ -202,6 +202,8 @@
 
 (let ()
 
+  ;; Tests for the different set types:
+
   (define (test=? result s1 s2)
     (test result equal? s1 s2)
     (test result set=? s1 s2))
@@ -334,7 +336,38 @@
       (err/rt-test (proper-subset? s sB))
       (err/rt-test (proper-subset? s sC))
 
+      ;; Test iteration:
+
+      (define sorted (sort elems <))
+
+      (test (map sub1 sorted) sort (set-map ms sub1) <)
+      (test (map sub1 sorted) sort (set-map s sub1) <)
+
+      (test sorted
+            sort
+            (let ([xs '()])
+              (set-for-each ms (lambda (x) (set! xs (cons x xs))))
+              xs)
+            <)
+      (test sorted
+            sort
+            (let ([xs '()])
+              (set-for-each s (lambda (x) (set! xs (cons x xs))))
+              xs)
+            <)
+
+      (test sorted sort (for/list ([x (in-set ms)]) x) <)
+      (test sorted sort (for/list ([x (in-set s)]) x) <)
+
+      (test sorted sort (sequence->list (in-set ms)) <)
+      (test sorted sort (sequence->list (in-set s)) <)
+
+      (test sorted sort (set->list ms) <)
+      (test sorted sort (set->list s) <)
+
       (void))
+
+    ;; Test instances:
 
     (define ms (mset-A 1 2 3))
     (define s0 (set-A 1 2 3))
