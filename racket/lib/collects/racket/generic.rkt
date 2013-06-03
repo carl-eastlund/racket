@@ -21,19 +21,19 @@
          #:defined-table defined-table
          (generic . generics-args) ...
          #:defaults defaults
-         #:fallback ())]
+         #:fallbacks ())]
     [(_ name #:defined-table defined-table (generic . generics-args) ...)
      #'(define-generics name
          #:defined-table defined-table
          (generic . generics-args) ...
          #:defaults ()
-         #:fallback ())]
+         #:fallbacks ())]
     [(_ name (generic . generics-args) ...)
      #'(define-generics name
          #:defined-table defined-table
          (generic . generics-args) ...
          #:defaults ()
-         #:fallback ())]
+         #:fallbacks ())]
     [(_ name
         #:defined-table defined-table
         (generic . generics-args) ...
@@ -42,30 +42,30 @@
           #:defined-table defined-table
           (generic . generics-args) ...
           #:defaults defaults
-          #:fallback ())]
-    [(_ name (generic . generics-args) ... #:defaults defaults #:fallback fallback)
+          #:fallbacks ())]
+    [(_ name (generic . generics-args) ... #:defaults defaults #:fallbacks fallbacks)
      #'(define-generics name
          #:defined-table defined-table
          (generic . generics-args) ...
          #:defaults defaults
-         #:fallback fallback)]
-    [(_ name #:defined-table defined-table (generic . generics-args) ... #:fallback fallback)
+         #:fallbacks fallbacks)]
+    [(_ name #:defined-table defined-table (generic . generics-args) ... #:fallbacks fallbacks)
      #'(define-generics name
          #:defined-table defined-table
          (generic . generics-args) ...
          #:defaults ()
-         #:fallback fallback)]
-    [(_ name (generic . generics-args) ... #:fallback fallback)
+         #:fallbacks fallbacks)]
+    [(_ name (generic . generics-args) ... #:fallbacks fallbacks)
      #'(define-generics name
          #:defined-table defined-table
          (generic . generics-args) ...
          #:defaults ()
-         #:fallback fallback)]
+         #:fallbacks fallbacks)]
     [(_ name
        #:defined-table defined-table
        (generic . generics-args) ...
        #:defaults defaults
-       #:fallback fallback)
+       #:fallbacks fallbacks)
      (local [(define name-str (symbol->string (syntax-e #'name)))
              (define (id . strs)
                (datum->syntax
@@ -75,7 +75,7 @@
        #'(define-generics/pre (name gen:name prop:name name?
                                     #:defined-table defined-table
                                     #:defaults defaults
-                                    #:fallback fallback
+                                    #:fallbacks fallbacks
                                     ;; the following are not public
                                     #:prop-defined-already? #f
                                     #:define-contract define-generics-contract)

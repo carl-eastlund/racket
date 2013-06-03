@@ -33,7 +33,7 @@
                 ([pred? impl ...]
                  ;; TODO fallthrough?
                  ...)
-                #:fallback (fallback ...)
+                #:fallbacks (fallback ...)
                 ;; are we being passed an existing struct property? If so,
                 ;; this kw arg is bound to the struct property accessor, and
                 ;; we don't define the struct property
