@@ -373,9 +373,16 @@
     (define s0 (set-A 1 2 3))
     (t1 ms s0 '(1 2) '(3) '(4))
 
+    (define msc (set-copy ms))
+    (define sc (set-copy s0))
+    (t1 msc sc '(1 2) '(3) '(4))
+
     (set-remove! ms 3)
     (define s1 (set-remove s0 3))
     (t1 ms s1 '(1) '(2) '(3 4))
+
+    ;; Ensure the copy hasn't changed.
+    (t1 msc sc '(1 2) '(3) '(4))
 
     (set-add! ms 4)
     (define s2 (set-add s1 4))
