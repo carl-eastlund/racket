@@ -47,16 +47,6 @@
            (values (car methods) index)]
           [else (loop (cdr methods) (add1 index))]))))
 
-  (define-values [struct:method-table
-                  make-method-table
-                  method-table?
-                  method-table-get
-                  method-table-set!]
-    (make-struct-type 'method-table #f 1 0))
-
-  (define method-table-vector
-    (make-struct-field-accessor method-table-get 0 'vector))
-
   (define-syntax-parameter generic-method-context #f)
 
   (define-syntax (unimplemented stx)
@@ -81,7 +71,7 @@
          (define-values (index impl-id) (get-method info #'method))
          (with-syntax ([i index])
            (syntax/loc stx
-             (vector-ref (method-table-vector table) 'i))))]))
+             (vector-ref table 'i))))]))
 
   (define-syntax (generic-method-table stx)
     (syntax-case stx ()
@@ -95,8 +85,7 @@
              (syntax-parameterize ([generic-method-context #'gen])
                (let-syntax ([method (rename-transformer #'unimplemented)] ...)
                  def ...
-                 (make-method-table
-                  (vector (implementation method) ...)))))))]))
+                 (vector (implementation method) ...))))))]))
 
   (define-syntax (define/generic stx)
     (define gen-id (syntax-parameter-value #'generic-method-context))
