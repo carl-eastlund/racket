@@ -7,8 +7,9 @@
          "generic-methods.rkt"
          (only-in racket/function arity-includes?))
 
-(provide define-generics/derived
-         define-generics-for-property
+(provide define-primitive-generics
+         define-primitive-generics/derived
+         define-primitive-generics-for-property
          define/generic)
 
 (begin-for-syntax
@@ -20,7 +21,7 @@
     (unless (identifier? stx)
       (wrong-syntax stx "expected an identifier"))))
 
-(define-syntax (define-generics-for-property stx)
+(define-syntax (define-primitive-generics-for-property stx)
   (syntax-case stx ()
     [(_ #:define-generic generic-name
         #:define-supported supported-name
@@ -66,7 +67,7 @@
              #:given-source original)
            ...))]))
 
-(define-syntax (define-generics/derived stx)
+(define-syntax (define-primitive-generics/derived stx)
   (syntax-case stx ()
     [(_ #:define-generic generic-name
         #:define-predicate predicate-name
@@ -129,6 +130,27 @@
            (define default-impl-name
              (generic-method-table generic-name default-defn ...))
            ...))]))
+
+(define-syntax (define-primitive-generics stx)
+  (syntax-case stx ()
+    [(_ #:define-generic generic-name
+        #:define-predicate predicate-name
+        #:define-accessor accessor-name
+        #:define-supported supported-name
+        #:define-methods [(method-name . signature-name) ...]
+        #:given-self self-name
+        #:given-defaults ([default-pred default-defn ...] ...)
+        #:given-fallbacks [fallback-defn ...])
+     #`(define-primitive-generics/derived
+         #:define-generic generic-name
+         #:define-predicate predicate-name
+         #:define-accessor accessor-name
+         #:define-supported supported-name
+         #:define-methods [(method-name . signature-name) ...]
+         #:given-self self-name
+         #:given-defaults ([default-pred default-defn ...] ...)
+         #:given-fallbacks [fallback-defn ...]
+         #:given-source #,stx)]))
 
 (define-syntax (define-generic-support stx)
   (syntax-case stx ()
@@ -271,29 +293,7 @@
     (list (method-formals)
           (method-application)))
 
-  (define (check-method-signature! req req-kw opt opt-kw rest self-id stx)
-    (define req-kw-ids (map cadr req-kw))
-    (define opt-kw-ids (map cadr opt-kw))
-    (define rest-ids (if rest (list rest) '()))
-    (define non-req (append opt req-kw-ids opt-kw-ids rest-ids))
-    (define ids (append req non-req))
-    (define dup (check-duplicate-identifier ids))
-    (when dup (wrong-syntax dup "duplicate method argument"))
-    (for ([id (in-list non-req)]
-          #:when (free-identifier=? id self-id))
-      (wrong-syntax id
-                    "the generic name must be used as ~a"
-                    "a required, by-position argument"))
-    (define matches
-      (for/list ([id (in-list req)]
-                 #:when (free-identifier=? id self-id))
-        id))
-    (unless (pair? matches)
-      (wrong-syntax stx
-                    "did not find the generic name among the arguments to ~s"
-                    )))
-
-  (define (parse-method-signature self-stx stx)
+  (define (parse-method-signature stx)
     (syntax-case stx ()
       [(kw [val] . args)
        (and (keyword-stx? #'kw) (identifier? #'val))

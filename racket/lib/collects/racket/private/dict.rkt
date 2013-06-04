@@ -3,23 +3,24 @@
 (require racket/private/generic ; to avoid circular dependencies
          (for-syntax racket/base))
 
-(define-generics (dict gen:dict prop:dict dict?
-                       #:defined-table dict-def-table
-                       #:defaults ()
-                       #:fallbacks ()
-                       ;; private version needs all kw args, in order
-                       #:prop-defined-already? #f
-                       #:define-contract #f)
-  (dict-ref  dict key [default])
-  (dict-set! dict key val)
-  (dict-set  dict key val)
-  (dict-remove! dict key)
-  (dict-remove  dict key)
-  (dict-count dict)
-  (dict-iterate-first dict)
-  (dict-iterate-next dict pos)
-  (dict-iterate-key dict pos)
-  (dict-iterate-value dict pos))
+(define-primitive-generics
+  #:define-generic gen:dict
+  #:define-predicate dict?
+  #:define-accessor dict-method-table
+  #:define-supported dict-def-table
+  #:define-methods [(dict-ref  dict key [default])
+                    (dict-set! dict key val)
+                    (dict-set  dict key val)
+                    (dict-remove! dict key)
+                    (dict-remove  dict key)
+                    (dict-count dict)
+                    (dict-iterate-first dict)
+                    (dict-iterate-next dict pos)
+                    (dict-iterate-key dict pos)
+                    (dict-iterate-value dict pos)]
+  #:given-self dict
+  #:given-defaults ()
+  #:given-fallbacks ())
 
 (define (assoc? v)
   (and (list? v) (andmap pair? v)))
