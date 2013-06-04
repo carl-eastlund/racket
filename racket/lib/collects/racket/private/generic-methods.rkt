@@ -1,6 +1,8 @@
 (module generic-methods '#%kernel
 
-  (#%require (for-syntax '#%kernel))
+  (#%require (for-syntax '#%kernel "small-scheme.rkt" "define.rkt"
+                         "stx.rkt" "stxcase-scheme.rkt")
+             "define.rkt" "../stxparam.rkt")
 
   (#%provide define/generic generic-property
              generic-method-table generic-method-ref
@@ -32,18 +34,18 @@
       info)
 
     (define (get-method name ctx gen-id info method-id)
-      (define-values pair
-        (for/first ([index (in-naturals 0)]
-                    [impl-id (in-list (generic-info-methods info))]
-                    #:when (free-identifier=? impl-id method-id))
-          (cons index impl-id)))
-      (unless pair
-        (define message
-          (format "~.s is not a method of ~.s"
-                  (syntax-e method-id)
-                  (syntax-e gen-id)))
-        (raise-syntax-error 'name message ctx method-id))
-      (values (car pair) (cdr pair))))
+      (let loop ([methods (generic-info-methods info)]
+                 [index 0])
+        (cond
+          [(null? methods)
+           (define message
+             (format "~.s is not a method of ~.s"
+                     (syntax-e method-id)
+                     (syntax-e gen-id)))
+           (raise-syntax-error 'name message ctx method-id)]
+          [(free-identifier=? (car methods) method-id)
+           (values (car methods) index)]
+          [else (loop (cdr methods) (add1 index))]))))
 
   (define-values [struct:method-table
                   make-method-table
@@ -58,7 +60,7 @@
   (define-syntax-parameter generic-method-context #f)
 
   (define-syntax (unimplemented stx)
-    (raise-syntax #f "unimplemented generic method" stx))
+    (raise-syntax-error #f "unimplemented generic method" stx))
 
   (define-syntax (implementation stx)
     (syntax-case stx (unimplemented)
@@ -68,32 +70,33 @@
   (define-syntax (generic-property stx)
     (syntax-case stx ()
       [(_ gen)
-       (define info (get-info 'generic-property stx #'gen))
-       (generic-info-property info)]))
+       (generic-info-property (get-info 'generic-property stx #'gen))]))
 
   (define-syntax (generic-method-ref stx)
     (syntax-case stx ()
       [(_ gen table method)
-       (define info (get-info 'generic-method-ref stx #'gen))
-       (check-identifier! 'generic-method-ref stx #'method)
-       (define methods (generic-info-methods info))
-       (define-values (index impl-id) (get-method info #'method))
-       (with-syntax ([i index])
-         (syntax/loc stx
-           (vector-ref (method-table-vector table) 'i)))]))
+       (let ()
+         (define info (get-info 'generic-method-ref stx #'gen))
+         (check-identifier! 'generic-method-ref stx #'method)
+         (define-values (index impl-id) (get-method info #'method))
+         (with-syntax ([i index])
+           (syntax/loc stx
+             (vector-ref (method-table-vector table) 'i))))]))
 
   (define-syntax (generic-method-table stx)
     (syntax-case stx ()
       [(_ gen def ...)
-       (define info (get-info 'generic-method-table stx #'gen))
-       (define delta (syntax-local-make-delta-introducer #'gen))
-       (define methods (map delta (generic-info-methods info)))
-       (with-syntax ([(method ...) methods])
-         (syntax/loc stx
-           (syntax-parameterize ([generic-method-context #'gen])
-             (let-syntax ([method (rename-transformer #'unimplemented)] ...)
-               def ...
-               (make-method-table (vector (implementation method) ...))))))]))
+       (let ()
+         (define info (get-info 'generic-method-table stx #'gen))
+         (define delta (syntax-local-make-delta-introducer #'gen))
+         (define methods (map delta (generic-info-methods info)))
+         (with-syntax ([(method ...) methods])
+           (syntax/loc stx
+             (syntax-parameterize ([generic-method-context #'gen])
+               (let-syntax ([method (rename-transformer #'unimplemented)] ...)
+                 def ...
+                 (make-method-table
+                  (vector (implementation method) ...)))))))]))
 
   (define-syntax (define/generic stx)
     (define gen-id (syntax-parameter-value #'generic-method-context))
@@ -102,13 +105,12 @@
            (syntax-local-value gen-id (lambda () #f))))
     (unless (generic-info? gen-val)
       (raise-syntax-error 'define/generic "only allowed inside methods" stx))
-    (define delta (syntax-local-make-delta-introducer gen-id))
-    (define methods (map delta (generic-info-methods gen-val)))
     (syntax-case stx ()
       [(_ name method)
-       (check-identifier! 'define/generic stx #'name)
-       (check-identifier! 'define/generic stx #'method)
-       (define-values (index impl-id) (get-method gen-val #'method))
-       (with-syntax ([impl ((make-syntax-introducer) impl-id)])
-         (syntax/loc stx
-           (define name impl)))])))
+       (let ()
+         (check-identifier! 'define/generic stx #'name)
+         (check-identifier! 'define/generic stx #'method)
+         (define-values (index impl-id) (get-method gen-val #'method))
+         (with-syntax ([impl ((make-syntax-introducer) impl-id)])
+           (syntax/loc stx
+             (define name impl))))])))
