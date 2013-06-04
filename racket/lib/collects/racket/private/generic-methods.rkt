@@ -42,7 +42,7 @@
              (format "~.s is not a method of ~.s"
                      (syntax-e method-id)
                      (syntax-e gen-id)))
-           (raise-syntax-error 'name message ctx method-id)]
+           (raise-syntax-error name message ctx method-id)]
           [(free-identifier=? (car methods) method-id)
            (values (car methods) index)]
           [else (loop (cdr methods) (add1 index))]))))
@@ -68,7 +68,8 @@
        (let ()
          (define info (get-info 'generic-method-ref stx #'gen))
          (check-identifier! 'generic-method-ref stx #'method)
-         (define-values (index impl-id) (get-method info #'method))
+         (define-values (index impl-id)
+           (get-method (syntax-e #'method) stx #'gen info #'method))
          (with-syntax ([i index])
            (syntax/loc stx
              (vector-ref table 'i))))]))
@@ -101,7 +102,8 @@
        (let ()
          (check-identifier! 'define/generic stx #'name)
          (check-identifier! 'define/generic stx #'method)
-         (define-values (index impl-id) (get-method gen-val #'method))
+         (define-values (index impl-id)
+           (get-method 'define/generic stx gen-id gen-val #'method))
          (with-syntax ([impl ((make-syntax-introducer) impl-id)])
            (syntax/loc stx
              (define name impl))))])))
