@@ -9,7 +9,6 @@
 
 (provide define-generics/derived
          define-generics-for-property
-         ignore-generics-contract
          define/generic)
 
 (begin-for-syntax
@@ -39,7 +38,7 @@
        (for-each check-identifier!
                  (syntax->list #'(method-name ...)))
        (define/with-syntax (index ...)
-         (for/list ([idx (in-naturals ...)]
+         (for/list ([idx (in-naturals)]
                     [stx (in-list (syntax->list #'(method-name ...)))])
            idx))
        (define/with-syntax contract-str
@@ -77,24 +76,22 @@
         #:given-self self-name
         #:given-defaults ([default-pred default-defn ...] ...)
         #:given-fallbacks [fallback-defn ...]
-        #:given-contract define-contract-name
         #:given-source original)
      (parameterize ([current-syntax-context #'original])
        (check-identifier! #'self-name)
-       (check-identifier! #'define-contract-name)
        (check-identifier! #'generic-name)
        (check-identifier! #'predicate-name)
        (check-identifier! #'supported-name)
        (for-each check-identifier! (syntax->list #'(method-name ...)))
        (define/with-syntax (index ...)
-         (for/list ([idx (in-naturals ...)]
+         (for/list ([idx (in-naturals)]
                     [stx (in-list (syntax->list #'(method-name ...)))])
            idx))
        (define/with-syntax contract-str
          (format "~s" (syntax-e #'predicate-name)))
-       (define/with-syntax default-pred-name
+       (define/with-syntax (default-pred-name ...)
          (generate-temporaries #'(default-pred ...)))
-       (define/with-syntax default-impl-name
+       (define/with-syntax (default-impl-name ...)
          (generate-temporaries #'(default-pred ...)))
        #'(begin
            (define-syntax generic-name
@@ -145,7 +142,7 @@
        (check-identifier! #'self-name)
        (for-each check-identifier! (syntax->list #'(method-name ...)))
        (define/with-syntax (index ...)
-         (for/list ([idx (in-naturals ...)]
+         (for/list ([idx (in-naturals)]
                     [stx (in-list (syntax->list #'(method-name ...)))])
            idx))
        #'(define (supported-name self-name)
@@ -155,7 +152,7 @@
 
 (begin-for-syntax
 
-  (define (method-formals/application self-stx proc-stx sig-stx name-stx)
+  (define (method-formals/application self-id proc-stx sig-stx name-stx)
 
     (define (check-method-signature!)
       (define dup (check-duplicate-identifier ids))
@@ -170,7 +167,7 @@
                    #:when (free-identifier=? id self-id))
           id))
       (unless (pair? matches)
-        (wrong-syntax stx
+        (wrong-syntax sig-stx
                       "did not find the generic name among the arguments to ~s"
                       (syntax-e name-stx)))
       (when (pair? (cdr matches))
