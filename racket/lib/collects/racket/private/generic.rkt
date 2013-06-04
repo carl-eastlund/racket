@@ -4,7 +4,7 @@
                      racket/local
                      racket/syntax
                      syntax/stx)
-         (only-in "define-struct.rkt" define/generic)
+         "generic-methods.rkt"
          (only-in racket/function arity-includes?))
 
 (provide define-generics define/generic)
