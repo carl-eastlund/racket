@@ -4,8 +4,7 @@
                          "stx.rkt" "stxcase-scheme.rkt")
              "define.rkt" "../stxparam.rkt")
 
-  (#%provide define/generic generic-property
-             generic-method-table generic-method-ref
+  (#%provide define/generic generic-property generic-method-table
              (for-syntax generic-info? make-generic-info
                          generic-info-property generic-info-methods))
 
@@ -61,18 +60,6 @@
     (syntax-case stx ()
       [(_ gen)
        (generic-info-property (get-info 'generic-property stx #'gen))]))
-
-  (define-syntax (generic-method-ref stx)
-    (syntax-case stx ()
-      [(_ gen table method)
-       (let ()
-         (define info (get-info 'generic-method-ref stx #'gen))
-         (check-identifier! 'generic-method-ref stx #'method)
-         (define-values (index impl-id)
-           (get-method (syntax-e #'method) stx #'gen info #'method))
-         (with-syntax ([i index])
-           (syntax/loc stx
-             (vector-ref table 'i))))]))
 
   (define-syntax (generic-method-table stx)
     (syntax-case stx ()
