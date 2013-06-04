@@ -64,11 +64,10 @@
        ;; mark each set of default methods for a default set and
        ;; then flatten all of the default definitions
        (define method-impl-list
-         (apply append
-                (map syntax->list
-                     (for/list ([introducer pred-introducers]
-                                [meths (syntax->list #'((impl ...) ...))])
-                       (introducer meths)))))
+         (map syntax->list
+              (for/list ([introducer pred-introducers]
+                         [meths (syntax->list #'((impl ...) ...))])
+                (introducer meths))))
        ;; mark each generic function name for a default set
        (define marked-generics
          (for/list ([generic generics])
@@ -136,6 +135,8 @@
        ;; for each generic method, builds a cond clause to do the
        ;; predicate dispatch found in method-impl-list
        (define/with-syntax ((cond-impl ...) ...) marked-generics)
+       (define/with-syntax ((cond-name ...) ...)
+         (apply map (compose cdr list) pred-introducers marked-generics))
        (define/with-syntax (-name?) (generate-temporaries #'(name?)))
        (define/with-syntax (prop-defn ...)
          (if prop-defined-already?
@@ -171,7 +172,7 @@
                        (generic generic-idx) ...))
              ;; don't define a contract when given #f
              '()))
-       (define/with-syntax (method-impl ...) method-impl-list)
+       (define/with-syntax ((method-impl ...) ...) method-impl-list)
        (define/with-syntax pred-name
          (if prop-defined-already?
              #'(name? this)
@@ -209,13 +210,25 @@
            (define (defined-table this)
              (unless (name? this)
                (raise-argument-error 'defined-table name-str this))
-             (for/hash ([name (in-list '(generic ...))]
-                        [gen (in-vector (get-generics this))])
-               (values name (not (not gen)))))
+             (cond
+               [pred-name
+                (for/hash ([name (in-list '(generic ...))]
+                           [gen (in-vector (get-generics this))])
+                  (values name (not (not gen))))]
+               [(pred? this)
+                (for/hash ([name (in-list '(generic ...))]
+                           [gen (in-list (list cond-name ...))])
+                  (values name (not (not gen))))]
+               ...
+               [else (raise-argument-error 'defined-table name-str this)]))
            ;; Define the contract that goes with this generic interface
            contract-defn ...
            ;; Define default implementations
-           method-impl ...
+           (define-values (cond-name ...)
+             (let ([cond-name #f] ...)
+               method-impl ...
+               (values cond-name ...)))
+           ...
            (define-values (fallback-name ...)
              (let ([generic #f] ...)
                fallback ...
