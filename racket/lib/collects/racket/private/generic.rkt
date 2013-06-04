@@ -29,10 +29,7 @@
     ;; the method header's self argument.
     [(_ (header name prop:name name?
                 #:defined-table defined-table
-                #:defaults
-                ([pred? impl ...]
-                 ;; TODO fallthrough?
-                 ...)
+                #:defaults ([pred? impl ...] ...)
                 #:fallbacks (fallback ...)
                 ;; are we being passed an existing struct property? If so,
                 ;; this kw arg is bound to the struct property accessor, and
