@@ -49,7 +49,7 @@
            (define-syntax generic-name
              (make-generic-info (quote-syntax property-name)
                                 (list (quote-syntax method-name) ...)))
-           (define-syntax-rule (get who self-name)
+           (define (get who self-name)
              (if (predicate-name self-name)
                  (accessor-name self-name)
                  (raise-argument-error who 'contract-str self-name)))
@@ -57,13 +57,13 @@
              #:define-supported supported-name
              #:given-self self-name
              #:given-methods [method-name ...]
-             #:given-impls (get 'supported-name self-name)
+             #:given-table (get 'supported-name self-name)
              #:given-source original)
            (define-generic-method
              #:define-method method-name
              #:given-signature method-signature
              #:given-self self-name
-             #:given-impl (vector-ref (get 'method-name self-name) 'index)
+             #:given-proc (vector-ref (get 'method-name self-name) 'index)
              #:given-source original)
            ...))]))
 
@@ -71,6 +71,7 @@
   (syntax-case stx ()
     [(_ #:define-generic generic-name
         #:define-predicate predicate-name
+        #:define-accessor accessor-name
         #:define-supported supported-name
         #:define-methods [(method-name . signature-name) ...]
         #:given-self self-name
@@ -101,7 +102,9 @@
                                 (list (quote-syntax method-name) ...)))
            (define-values (prop:name prop:pred prop:get)
              (make-struct-type-property 'generic-name))
-           (define-syntax-rule (get who self-name)
+           (define (predicate-name self-name)
+             (or (prop:pred self-name) (default-pred-name self-name) ...))
+           (define (accessor-name who self-name)
              (cond
                [(prop:pred self-name) (prop:get self-name)]
                [(default-pred-name self-name) default-impl-name]
@@ -111,14 +114,15 @@
              #:define-supported supported-name
              #:given-self self-name
              #:given-methods [method-name ...]
-             #:given-impl (get 'supported-name self-name)
+             #:given-table (accessor-name 'supported-name self-name)
              #:given-source original)
            (define-generic-method
              #:define-method method-name
              #:given-signature method-signature
              #:given-self self-name
-             #:given-impl (or (vector-ref (get 'method-name self-name) 'index)
-                              (vector-ref fallback-name 'index))
+             #:given-proc
+             (or (vector-ref (accessor-name 'method-name self-name) 'index)
+                 (vector-ref fallback-name 'index))
              #:given-source original)
            ...
            (define-values (default-pred-name ...)
@@ -128,6 +132,232 @@
            (define default-impl-name
              (generic-method-table generic-name default-defn ...))
            ...))]))
+
+(define-syntax (define-generic-support stx)
+  (syntax-case stx ()
+    [(_ #:define-supported supported-name
+        #:given-self self-name
+        #:given-methods [method-name ...]
+        #:given-table table
+        #:given-source original)
+     (parameterize ([current-syntax-context #'original])
+       (check-identifier! #'supported-name)
+       (check-identifier! #'self-name)
+       (for-each check-identifier! (syntax->list #'(method-name ...)))
+       (define/with-syntax (index ...)
+         (for/list ([idx (in-naturals ...)]
+                    [stx (in-list (syntax->list #'(method-name ...)))])
+           idx))
+       #'(define (supported-name self-name)
+           (define v table)
+           (make-immutable-hasheqv
+             (list (cons 'method-name (vector-ref v 'index)) ...))))]))
+
+(begin-for-syntax
+
+  (define (method-formals/application self-stx proc-stx sig-stx name-stx)
+
+    (define (check-method-signature!)
+      (define dup (check-duplicate-identifier ids))
+      (when dup (wrong-syntax dup "duplicate method argument"))
+      (for ([id (in-list non-req)]
+            #:when (free-identifier=? id self-id))
+        (wrong-syntax id
+                      "the generic name must be used as ~a"
+                      "a required, by-position argument"))
+      (define matches
+        (for/list ([id (in-list req)]
+                   #:when (free-identifier=? id self-id))
+          id))
+      (unless (pair? matches)
+        (wrong-syntax stx
+                      "did not find the generic name among the arguments to ~s"
+                      (syntax-e name-stx)))
+      (when (pair? (cdr matches))
+        (wrong-syntax (cadr matches)
+                      "found ~a among the arguments to ~s"
+                      "more than one occurrence of the generic name"
+                      (syntax-e name-stx))))
+
+    (define (method-formals)
+      (define/with-syntax [req-name ...] req)
+      (define/with-syntax [opt-name ...] opt)
+      (define/with-syntax ([req-arg ...] ...) req-kw)
+      (define/with-syntax ([opt-key opt-val] ...) opt-kw)
+      (define/with-syntax ([opt-arg ...] ...)
+        #'([opt-key [opt-val generic-method-default-argument]] ...))
+      (define/with-syntax tail (or rest '()))
+      #'(req-name ...
+         [opt-name generic-method-default-argument] ...
+         req-arg ... ...
+         opt-arg ... ...
+         . tail))
+
+    (define (method-application)
+      (define app-count (* (add1 (length opt)) (expt 2 (length opt-kw))))
+      (if (<= app-count app-threshold)
+          (by-position req opt rest
+                       (lambda (pos tail)
+                         (by-keyword req-kw opt-kw
+                                     (lambda (keys vals)
+                                       (make-application pos keys vals tail)))))
+          (brute-force-application)))
+
+    (define app-threshold 64)
+
+    (define (brute-force-application)
+      (define/with-syntax [r ...] req)
+      (define/with-syntax [o ...] opt)
+      (define/with-syntax ([key val] ...)
+        (sort (append req-kw opt-kw) keyword<?
+              #:key (compose car syntax->datum)))
+      (define/with-syntax tail (if rest rest #'(quote ())))
+      (define/with-syntax f proc-stx)
+      (define/with-syntax [tmp.ks tmp.vs tmp.k tmp.v tmp.args tmp.arg]
+        (generate-temporaries '(ks vs k v args arg)))
+      #'(let ()
+          (define-values (tmp.ks tmp.vs)
+            (for/lists
+                (tmp.ks tmp.vs)
+                ([tmp.k (in-list '(key ...))]
+                 [tmp.v (in-list (list val ...))]
+                 #:unless (eq? tmp.v generic-method-default-argument))
+              (values tmp.k tmp.v)))
+          (define tmp.args
+            (for/list ([tmp.arg (in-list (list* o ... tail))]
+                       #:unless (eq? tmp.arg generic-method-default-argument))
+              tmp.arg))
+          (keyword-apply f tmp.ks tmp.vs r ... tmp.args)))
+
+    (define (push lst x) (append lst (list x)))
+
+    (define (by-position req opt tail make-app)
+      (cond
+        [(null? opt) (make-app req tail)]
+        [else
+         (define/with-syntax arg (car opt))
+         #`(if (eq? arg generic-method-default-argument)
+               #,(make-app req #f)
+               #,(by-position (push req (car opt)) (cdr opt) tail make-app))]))
+
+    (define (by-keyword req opt make-app)
+      (cond
+        [(null? opt) (make-app (map car req) (map cadr req))]
+        [else
+         (define/with-syntax arg (cadr (car opt)))
+         #`(if (eq? arg generic-method-default-argument)
+               #,(by-keyword req (cdr opt) make-app)
+               #,(by-keyword (push req (car opt)) (cdr opt) make-app))]))
+
+    (define (make-application pos keys vals tail)
+      (define/with-syntax f proc-stx)
+      (define/with-syntax [arg ...] pos)
+      (define/with-syntax ([kw ...] ...) (map list keys vals))
+      (if tail
+          (with-syntax ([rest tail])
+            #'(apply f kw ... ... arg ... tail))
+          #'(f kw ... ... arg ...)))
+
+    (define-values (req req-kw opt opt-kw rest)
+      (parse-method-signature sig-stx))
+    (define req-kw-ids (map cadr req-kw))
+    (define opt-kw-ids (map cadr opt-kw))
+    (define rest-ids (if rest (list rest) '()))
+    (define non-req (append opt req-kw-ids opt-kw-ids rest-ids))
+    (define ids (append req non-req))
+
+    (check-method-signature!)
+    (list (method-formals)
+          (method-application)))
+
+  (define (check-method-signature! req req-kw opt opt-kw rest self-id stx)
+    (define req-kw-ids (map cadr req-kw))
+    (define opt-kw-ids (map cadr opt-kw))
+    (define rest-ids (if rest (list rest) '()))
+    (define non-req (append opt req-kw-ids opt-kw-ids rest-ids))
+    (define ids (append req non-req))
+    (define dup (check-duplicate-identifier ids))
+    (when dup (wrong-syntax dup "duplicate method argument"))
+    (for ([id (in-list non-req)]
+          #:when (free-identifier=? id self-id))
+      (wrong-syntax id
+                    "the generic name must be used as ~a"
+                    "a required, by-position argument"))
+    (define matches
+      (for/list ([id (in-list req)]
+                 #:when (free-identifier=? id self-id))
+        id))
+    (unless (pair? matches)
+      (wrong-syntax stx
+                    "did not find the generic name among the arguments to ~s"
+                    )))
+
+  (define (parse-method-signature self-stx stx)
+    (syntax-case stx ()
+      [(kw [val] . args)
+       (and (keyword-stx? #'kw) (identifier? #'val))
+       (let-values ([(req req-kw opt opt-kw rest)
+                     (parse-method-signature #'args)])
+         (values req req-kw opt (cons (list #'kw #'val) opt-kw) rest))]
+      [(kw val . args)
+       (and (keyword-stx? #'kw) (identifier? #'val))
+       (let-values ([(req req-kw opt opt-kw rest)
+                     (parse-method-signature #'args)])
+         (values req (cons (list #'kw #'val) req-kw) opt opt-kw rest))]
+      [(kw other . args)
+       (keyword-stx? #'kw)
+       (wrong-syntax #'other
+                     "expected required or optional identifier")]
+      [(kw . args)
+       (keyword-stx? #'kw)
+       (wrong-syntax #'kw
+                     "expected a required or optional identifier following ~s"
+                     (syntax-e #'kw))]
+      [([val] . args)
+       (identifier? #'val)
+       (let-values ([(req req-kw opt opt-kw rest)
+                     (parse-method-signature #'args)])
+         (values req req-kw (cons #'val opt) opt-kw rest))]
+      [(val . args)
+       (identifier? #'val)
+       (let-values ([(req req-kw opt opt-kw rest)
+                     (parse-method-signature #'args)])
+         (values (cons #'val req) req-kw opt opt-kw rest))]
+      [(other . args)
+       (wrong-syntax #'other
+                     "expected a keyword or a required or optional identifier")]
+      [rest (identifier? #'rest) (values '() '() '() '() #'rest)]
+      [() (values '() '() '() '() #f)]
+      [other
+       (wrong-syntax #'other
+                     "expected an identifier or an empty list")])))
+
+(define generic-method-default-argument
+  (gensym 'default-argument))
+
+(define-syntax (define-generic-method stx)
+  (syntax-case stx ()
+    [(_ #:define-method method-name
+        #:given-signature method-signature
+        #:given-self self-name
+        #:given-proc proc
+        #:given-source original)
+     (parameterize ([current-syntax-context #'original])
+       (check-identifier! #'method-name)
+       (check-identifier! #'self-name)
+       (define/with-syntax proc-name (generate-temporary #'method-name))
+       (define/with-syntax [method-formals method-apply]
+         (method-formals/application #'method-name
+                                     #'proc-name
+                                     #'self-name
+                                     #'method-signature))
+       #'(define (method-name . method-formals)
+           (define proc-name proc)
+           (unless proc-name
+             (raise-syntax-error 'method-name
+                                 "not implemented for ~e"
+                                 self-name))
+           method-apply))]))
 
 #;(define-syntax (define-generics stx)
   (syntax-case stx () ;; can't use syntax-parse, since it depends on us
