@@ -7,7 +7,10 @@
          "generic-methods.rkt"
          (only-in racket/function arity-includes?))
 
-(provide define-generics define/generic)
+(provide define-generics/derived
+         define-generics-for-property
+         ignore-generics-contract
+         define/generic)
 
 (begin-for-syntax
 
@@ -18,7 +21,115 @@
     (unless (identifier? stx)
       (wrong-syntax stx "expected an identifier"))))
 
-(define-syntax (define-generics stx)
+(define-syntax (define-generics-for-property stx)
+  (syntax-case stx ()
+    [(_ #:define-generic generic-name
+        #:define-supported supported-name
+        #:define-methods [(method-name . method-signature) ...]
+        #:given-self self-name
+        #:given-predicate predicate-name
+        #:given-property property-name
+        #:given-accessor accessor-name)
+     (parameterize ([current-syntax-context stx])
+       (check-identifier! #'generic-name)
+       (check-identifier! #'supported-name)
+       (check-identifier! #'property-name)
+       (check-identifier! #'accessor-name)
+       (check-identifier! #'predicate-name)
+       (for-each check-identifier!
+                 (syntax->list #'(method-name ...)))
+       (define/with-syntax (index ...)
+         (for/list ([idx (in-naturals ...)]
+                    [stx (in-list (syntax->list #'(method-name ...)))])
+           idx))
+       (define/with-syntax contract-str
+         (format "~s" (syntax-e #'predicate-name)))
+       (define/with-syntax original stx)
+       #'(begin
+           (define-syntax generic-name
+             (make-generic-info (quote-syntax property-name)
+                                (list (quote-syntax method-name) ...)))
+           (define-syntax-rule (get who self-name)
+             (if (predicate-name self-name)
+                 (accessor-name self-name)
+                 (raise-argument-error who 'contract-str self-name)))
+           (define-generic-support
+             #:define-supported supported-name
+             #:given-self self-name
+             #:given-methods [method-name ...]
+             #:given-impls (get 'supported-name self-name)
+             #:given-source original)
+           (define-generic-method
+             #:define-method method-name
+             #:given-signature method-signature
+             #:given-self self-name
+             #:given-impl (vector-ref (get 'method-name self-name) 'index)
+             #:given-source original)
+           ...))]))
+
+(define-syntax (define-generics/derived stx)
+  (syntax-case stx ()
+    [(_ #:define-generic generic-name
+        #:define-predicate predicate-name
+        #:define-supported supported-name
+        #:define-methods [(method-name . signature-name) ...]
+        #:given-self self-name
+        #:given-defaults ([default-pred default-defn ...] ...)
+        #:given-fallbacks [fallback-defn ...]
+        #:given-contract define-contract-name
+        #:given-source original)
+     (parameterize ([current-syntax-context #'original])
+       (check-identifier! #'self-name)
+       (check-identifier! #'define-contract-name)
+       (check-identifier! #'generic-name)
+       (check-identifier! #'predicate-name)
+       (check-identifier! #'supported-name)
+       (for-each check-identifier! (syntax->list #'(method-name ...)))
+       (define/with-syntax (index ...)
+         (for/list ([idx (in-naturals ...)]
+                    [stx (in-list (syntax->list #'(method-name ...)))])
+           idx))
+       (define/with-syntax contract-str
+         (format "~s" (syntax-e #'predicate-name)))
+       (define/with-syntax default-pred-name
+         (generate-temporaries #'(default-pred ...)))
+       (define/with-syntax default-impl-name
+         (generate-temporaries #'(default-pred ...)))
+       #'(begin
+           (define-syntax generic-name
+             (make-generic-info (quote-syntax property-name)
+                                (list (quote-syntax method-name) ...)))
+           (define-values (prop:name prop:pred prop:get)
+             (make-struct-type-property 'generic-name))
+           (define-syntax-rule (get who self-name)
+             (cond
+               [(prop:pred self-name) (prop:get self-name)]
+               [(default-pred-name self-name) default-impl-name]
+               ...
+               [else (raise-syntax-error who 'contract-name self-name)]))
+           (define-generic-support
+             #:define-supported supported-name
+             #:given-self self-name
+             #:given-methods [method-name ...]
+             #:given-impl (get 'supported-name self-name)
+             #:given-source original)
+           (define-generic-method
+             #:define-method method-name
+             #:given-signature method-signature
+             #:given-self self-name
+             #:given-impl (or (vector-ref (get 'method-name self-name) 'index)
+                              (vector-ref fallback-name 'index))
+             #:given-source original)
+           ...
+           (define-values (default-pred-name ...)
+             (values default-pred ...))
+           (define fallback-name
+             (generic-method-table generic-name fallback-defn ...))
+           (define default-impl-name
+             (generic-method-table generic-name default-defn ...))
+           ...))]))
+
+#;(define-syntax (define-generics stx)
   (syntax-case stx () ;; can't use syntax-parse, since it depends on us
     ;; keyword arguments must _all_ be provided _in_order_. For the
     ;; user-facing version of `define-generics', see racket/generic.
