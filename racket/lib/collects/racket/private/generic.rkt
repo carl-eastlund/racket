@@ -9,7 +9,6 @@
 
 (provide define-primitive-generics
          define-primitive-generics/derived
-         define-primitive-generics-for-property
          define/generic)
 
 (begin-for-syntax
@@ -20,52 +19,6 @@
   (define (check-identifier! stx)
     (unless (identifier? stx)
       (wrong-syntax stx "expected an identifier"))))
-
-(define-syntax (define-primitive-generics-for-property stx)
-  (syntax-case stx ()
-    [(_ #:define-generic generic-name
-        #:define-supported supported-name
-        #:define-methods [(method-name . method-signature) ...]
-        #:given-self self-name
-        #:given-predicate predicate-name
-        #:given-property property-name
-        #:given-accessor accessor-name)
-     (parameterize ([current-syntax-context stx])
-       (check-identifier! #'generic-name)
-       (check-identifier! #'supported-name)
-       (check-identifier! #'property-name)
-       (check-identifier! #'accessor-name)
-       (check-identifier! #'predicate-name)
-       (for-each check-identifier!
-                 (syntax->list #'(method-name ...)))
-       (define/with-syntax (index ...)
-         (for/list ([idx (in-naturals)]
-                    [stx (in-list (syntax->list #'(method-name ...)))])
-           idx))
-       (define/with-syntax contract-str
-         (format "~s" (syntax-e #'predicate-name)))
-       (define/with-syntax original stx)
-       #'(begin
-           (define-syntax generic-name
-             (make-generic-info (quote-syntax property-name)
-                                (list (quote-syntax method-name) ...)))
-           (define (get who self-name)
-             (if (predicate-name self-name)
-                 (accessor-name self-name)
-                 (raise-argument-error who 'contract-str self-name)))
-           (define-generic-support
-             #:define-supported supported-name
-             #:given-self self-name
-             #:given-methods [method-name ...]
-             #:given-table (get 'supported-name self-name)
-             #:given-source original)
-           (define-generic-method
-             #:define-method method-name
-             #:given-signature method-signature
-             #:given-self self-name
-             #:given-proc (vector-ref (get 'method-name self-name) 'index)
-             #:given-source original)
-           ...))]))
 
 (define-syntax (define-primitive-generics/derived stx)
   (syntax-case stx ()
