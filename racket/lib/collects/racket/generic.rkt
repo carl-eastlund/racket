@@ -1,8 +1,7 @@
 #lang racket/base
 (require racket/contract/base
          racket/contract/combinator
-         (rename-in "private/generic.rkt"
-                    [define-generics define-generics/pre])
+         "private/generic.rkt"
          (for-syntax racket/base racket/local racket/syntax))
 
 ;; Convenience layer on top of racket/private/generic.
