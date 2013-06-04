@@ -182,10 +182,10 @@
       (define/with-syntax ([req-arg ...] ...) req-kw)
       (define/with-syntax ([opt-key opt-val] ...) opt-kw)
       (define/with-syntax ([opt-arg ...] ...)
-        #'([opt-key [opt-val generic-method-default-argument]] ...))
+        #'([opt-key [opt-val default-arg]] ...))
       (define/with-syntax tail (or rest '()))
       #'(req-name ...
-         [opt-name generic-method-default-argument] ...
+         [opt-name default-arg] ...
          req-arg ... ...
          opt-arg ... ...
          . tail))
@@ -218,11 +218,11 @@
                 (tmp.ks tmp.vs)
                 ([tmp.k (in-list '(key ...))]
                  [tmp.v (in-list (list val ...))]
-                 #:unless (eq? tmp.v generic-method-default-argument))
+                 #:unless (eq? tmp.v default-arg))
               (values tmp.k tmp.v)))
           (define tmp.args
             (for/list ([tmp.arg (in-list (list* o ... tail))]
-                       #:unless (eq? tmp.arg generic-method-default-argument))
+                       #:unless (eq? tmp.arg default-arg))
               tmp.arg))
           (keyword-apply f tmp.ks tmp.vs r ... tmp.args)))
 
@@ -230,10 +230,13 @@
 
     (define (by-position req opt tail make-app)
       (cond
+        [tail #`(if (pair? #,tail)
+                    #,(make-app (append req opt) tail)
+                    #,(by-position req opt #f make-app))]
         [(null? opt) (make-app req tail)]
         [else
          (define/with-syntax arg (car opt))
-         #`(if (eq? arg generic-method-default-argument)
+         #`(if (eq? arg default-arg)
                #,(make-app req #f)
                #,(by-position (push req (car opt)) (cdr opt) tail make-app))]))
 
@@ -242,7 +245,7 @@
         [(null? opt) (make-app (map car req) (map cadr req))]
         [else
          (define/with-syntax arg (cadr (car opt)))
-         #`(if (eq? arg generic-method-default-argument)
+         #`(if (eq? arg default-arg)
                #,(by-keyword req (cdr opt) make-app)
                #,(by-keyword (push req (car opt)) (cdr opt) make-app))]))
 
@@ -250,6 +253,7 @@
       (define/with-syntax f proc-stx)
       (define/with-syntax [arg ...] pos)
       (define/with-syntax ([kw ...] ...) (map list keys vals))
+      (define/with-syntax x (generate-temporary 'x))
       (if tail
           (with-syntax ([rest tail])
             #'(apply f kw ... ... arg ... tail))
@@ -329,8 +333,8 @@
        (wrong-syntax #'other
                      "expected an identifier or an empty list")])))
 
-(define generic-method-default-argument
-  (gensym 'default-argument))
+(define default-arg
+  (gensym 'default-arg))
 
 (define-syntax (define-generic-method stx)
   (syntax-case stx ()
