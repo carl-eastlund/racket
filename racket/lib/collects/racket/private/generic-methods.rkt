@@ -124,8 +124,13 @@
         [(a . b) (cons (lexical-values #'a) (lexical-values #'b))]
         [i
          (identifier? #'i)
-         (let ([v (syntax-local-value #'i (lambda () 'value))])
-           (list #'i (eq-hash-code v) v))]
+         (let loop ([stx #'i])
+           (define-values (value target)
+             (syntax-local-value/immediate stx (lambda () (values #f 'value))))
+           (cond
+             [(identifier? target) (list* stx '#:rename (loop target))]
+             [(not target) (list stx '#:syntax (eq-hash-code value) value)]
+             [(symbol? target) (list stx '#:value)]))]
         [x #'x]))
     (with-syntax ([vs (lexical-values (stx-cdr stx))])
       #'(define/generic-values . vs)))
