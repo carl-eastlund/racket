@@ -19,7 +19,7 @@
       (wrong-syntax stx "expected an identifier"))))
 
 (define-syntax (define-generics stx)
-  (syntax-case stx () ; can't use syntax-parse, since it depends on us
+  (syntax-case stx () ;; can't use syntax-parse, since it depends on us
     ;; keyword arguments must _all_ be provided _in_order_. For the
     ;; user-facing version of `define-generics', see racket/generic.
     ;;
@@ -137,7 +137,7 @@
        (define/with-syntax (-name?) (generate-temporaries #'(name?)))
        (define/with-syntax (prop-defn ...)
          (if prop-defined-already?
-             '() ; we don't need to define it
+             '() ;; we don't need to define it
              (list
               #'(begin
                   (define-values (prop:name -name? get-generics)
@@ -178,7 +178,7 @@
          (generate-temporaries #'(generic ...)))
        #'(begin
            (define-syntax name (list #'prop:name #'generic ...))
-           ; XXX optimize no kws or opts
+           ;; XXX optimize no kws or opts
            (define generic-arity-coerce
              (let*-values ([(p) (lambda fake-args #f)]
                            [(generic-arity-spec) (procedure-arity p)]
