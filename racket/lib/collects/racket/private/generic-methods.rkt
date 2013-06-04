@@ -32,8 +32,14 @@
         (raise-syntax-error name "bad generics group name" ctx stx))
       info)
 
+    (define (introduce-ids gen-id method-ids)
+      (define delta (syntax-local-make-delta-introducer gen-id))
+      (define (introduce-id id) (syntax-local-get-shadower (delta id)))
+      (map introduce-id method-ids))
+
     (define (get-method name ctx gen-id info method-id)
-      (let loop ([methods (generic-info-methods info)]
+      (define methods0 (introduce-ids gen-id (generic-info-methods info)))
+      (let loop ([methods methods0]
                  [index 0])
         (cond
           [(null? methods)
@@ -41,7 +47,7 @@
              (format "~.s is not a method of ~.s"
                      (syntax-e method-id)
                      (syntax-e gen-id)))
-           (raise-syntax-error name message ctx method-id)]
+           (raise-syntax-error name message ctx method-id methods0)]
           [(free-identifier=? (car methods) method-id)
            (values (car methods) index)]
           [else (loop (cdr methods) (add1 index))]))))
