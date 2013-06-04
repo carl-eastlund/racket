@@ -71,6 +71,7 @@
   (syntax-case stx ()
     [(_ #:define-generic generic-name
         #:define-predicate predicate-name
+        #:define-property property-name
         #:define-accessor accessor-name
         #:define-supported supported-name
         #:define-methods [(method-name . method-signature) ...]
@@ -98,7 +99,7 @@
            (define-syntax generic-name
              (make-generic-info (quote-syntax property-name)
                                 (list (quote-syntax method-name) ...)))
-           (define-values (prop:name prop:pred prop:get)
+           (define-values (property-name prop:pred prop:get)
              (make-struct-type-property 'generic-name))
            (define (predicate-name self-name)
              (or (prop:pred self-name) (default-pred-name self-name) ...))
@@ -135,6 +136,7 @@
   (syntax-case stx ()
     [(_ #:define-generic generic-name
         #:define-predicate predicate-name
+        #:define-property property-name
         #:define-accessor accessor-name
         #:define-supported supported-name
         #:define-methods [(method-name . signature-name) ...]
@@ -144,6 +146,7 @@
      #`(define-primitive-generics/derived
          #:define-generic generic-name
          #:define-predicate predicate-name
+         #:define-property property-name
          #:define-accessor accessor-name
          #:define-supported supported-name
          #:define-methods [(method-name . signature-name) ...]

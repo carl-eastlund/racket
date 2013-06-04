@@ -6,6 +6,7 @@
 (define-primitive-generics
   #:define-generic gen:dict
   #:define-predicate dict?
+  #:define-property prop:dict
   #:define-accessor dict-method-table
   #:define-supported dict-def-table
   #:define-methods [(dict-ref  dict key [default])

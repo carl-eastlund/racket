@@ -83,7 +83,9 @@
          (with-syntax ([(method ...) methods])
            (syntax/loc stx
              (syntax-parameterize ([generic-method-context #'gen])
-               (let-syntax ([method (rename-transformer #'unimplemented)] ...)
+               (letrec-syntaxes+values
+                   ([(method) (make-rename-transformer #'unimplemented)] ...)
+                   ()
                  def ...
                  (vector (implementation method) ...))))))]))
 
