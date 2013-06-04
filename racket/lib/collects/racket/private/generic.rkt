@@ -73,7 +73,7 @@
         #:define-predicate predicate-name
         #:define-accessor accessor-name
         #:define-supported supported-name
-        #:define-methods [(method-name . signature-name) ...]
+        #:define-methods [(method-name . method-signature) ...]
         #:given-self self-name
         #:given-defaults ([default-pred default-defn ...] ...)
         #:given-fallbacks [fallback-defn ...]
@@ -174,7 +174,7 @@
 
 (begin-for-syntax
 
-  (define (method-formals/application self-id proc-stx sig-stx name-stx)
+  (define (method-formals/application name-stx proc-stx self-id sig-stx)
 
     (define (check-method-signature!)
       (define dup (check-duplicate-identifier ids))
@@ -190,8 +190,11 @@
           id))
       (unless (pair? matches)
         (wrong-syntax sig-stx
-                      "did not find the generic name among the arguments to ~s"
-                      (syntax-e name-stx)))
+                      "did not find ~a among ~a to ~s: ~s"
+                      "the generic name"
+                      "the required, by-position arguments"
+                      (syntax-e name-stx)
+                      (map syntax->datum req)))
       (when (pair? (cdr matches))
         (wrong-syntax (cadr matches)
                       "found ~a among the arguments to ~s"
