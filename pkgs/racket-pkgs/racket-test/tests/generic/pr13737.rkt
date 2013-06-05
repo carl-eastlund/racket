@@ -1,6 +1,7 @@
 #lang racket
 
 (require racket/generic
+         racket/private/generic
          rackunit)
 
 ;; This tests PR 13737 (keyword arguments and #:defaults did
@@ -17,21 +18,16 @@
 ;; This tests that the keyword & defaults issue doesn't occur for
 ;; forged generics either
 
-(let ()
-  (local-require racket/private/generic)
+(define-primitive-generics
+  #:define-generic gen:foo
+  #:define-predicate foo?
+  #:define-property prop:foo
+  #:define-accessor foo-accessor
+  #:define-supported dummy
+  #:define-methods [(meth foo #:kw kw)]
+  #:given-self foo
+  #:given-defaults ([number? (define (meth foo #:kw kw) kw)])
+  #:given-fallbacks ())
 
-  (define-values (prop:foo foo? foo-accessor)
-    (make-struct-type-property
-     'foo
-     #f))
-
-  (define-generics (foo gen:foo prop:foo foo?
-                        #:defined-table dummy
-                        #:defaults ([number? (define (meth foo #:kw kw) kw)])
-                        #:fallbacks ()
-                        #:prop-defined-already? foo-accessor
-                        #:define-contract #f)
-    (meth foo #:kw kw))
-
-  (check-equal? (meth 3 #:kw 5) 5))
+(check-equal? (meth 3 #:kw 5) 5)
 
