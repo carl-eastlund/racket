@@ -119,21 +119,45 @@
                ["sdim" sdim ...])))]))
 
   (define-syntax (define/generic-from stx)
-    (define (lexical-values stx)
-      (syntax-case stx ()
-        [(a . b) (cons (lexical-values #'a) (lexical-values #'b))]
-        [i
-         (identifier? #'i)
-         (let loop ([stx #'i])
-           (define-values (value target)
-             (syntax-local-value/immediate stx (lambda () (values #f 'value))))
-           (cond
-             [(identifier? target) (list* stx '#:rename (loop target))]
-             [(not target) (list stx '#:syntax (eq-hash-code value) value)]
-             [(symbol? target) (list stx '#:value)]))]
-        [x #'x]))
-    (with-syntax ([vs (lexical-values (stx-cdr stx))])
-      #'(define/generic-values . vs)))
+    (define source-ids
+      (let loop ([stx (stx-cdr stx)] [ids '()])
+        (syntax-case stx ()
+          [(a . b) (loop #'a (loop #'b ids))]
+          [i (identifier? #'i) (cons #'i ids)]
+          [_ ids])))
+    (define all-ids
+      (append source-ids (map syntax-local-introduce source-ids)))
+    (define bound-pairs
+      (let loop ([xs all-ids] [ys all-ids] [pairs '()])
+        (cond
+          [(null? xs) (reverse pairs)]
+          [(null? ys) (loop (cdr xs) (cdr xs) pairs)]
+          [else
+           (define x (car xs))
+           (define y (car xs))
+           (if (and (bound-identifier=? x y)
+                    (not (free-identifier=? x y)))
+               (loop xs (cdr ys) (cons (list x y) pairs))
+               (loop xs (cdr ys) pairs))])))
+    (define free-pairs
+      (let loop1 ([xs all-ids] [pairs '()])
+        (cond
+          [(null? xs) (reverse pairs)]
+          [else
+           (let loop2 ([x (car xs)] [pairs pairs])
+             (define-values (value target)
+               (syntax-local-value/immediate x
+                 (lambda () (values #f #f))))
+             (cond
+               [(identifier? target)
+                (if (free-identifier=? x target)
+                    (loop2 target pairs)
+                    (loop2 target (cons (list x target) pairs)))]
+               [else (loop1 (cdr xs) pairs)]))])))
+    (with-syntax ([([a b] ...) bound-pairs]
+                  [([c d] ...) free-pairs])
+      #'(bad-ids (#:bound-but-not-free [a b] ...)
+                 (#:rename-but-not-free [c d] ...))))
 
-  (define-syntax (define/generic-values stx)
-    (raise-syntax-error 'define/generic-values "stop here!" stx)))
+  (define-syntax (bad-ids stx)
+    (raise-syntax-error 'bad-ids "stop here!" stx)))

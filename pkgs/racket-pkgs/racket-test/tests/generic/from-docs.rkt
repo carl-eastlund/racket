@@ -9,9 +9,9 @@
 
 (define-struct thing (v)
   #:methods gen:printable
-  [(define-syntax-rule (define-super name)
-     (define/generic name gen-print))
-   (define-super super)
+  [(define-syntax-rule (define-super name method)
+     (define/generic name method))
+   (define-super super gen-print)
    (define (gen-port-print port x) (super x port))
    (define gen-print void)
    (define gen-print* void)])
