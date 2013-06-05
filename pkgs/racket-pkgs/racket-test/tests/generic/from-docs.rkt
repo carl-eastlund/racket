@@ -7,14 +7,16 @@
   (gen-port-print port printable)
   (gen-print* printable [port] #:width width #:height [height]))
 
-(define-struct thing (v)
-  #:methods gen:printable
-  [(define-syntax-rule (define-super name method)
-     (define/generic name method))
-   (define-super super gen-print)
-   (define (gen-port-print port x) (super x port))
-   (define gen-print void)
-   (define gen-print* void)])
+(define-syntax-rule (define-thing name)
+  (define-struct name (v)
+    #:methods gen:printable
+    [(define-syntax-rule (define-super name)
+       (define/generic name gen-print))
+     (define-super super)
+     (define (gen-port-print port x) (super x port))
+     (define gen-print void)
+     (define gen-print* void)]))
+(define-thing thing)
 
 (define-struct num (v)
   #:methods gen:printable
