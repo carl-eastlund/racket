@@ -14,6 +14,48 @@
              "generic-interfaces.rkt"
              (for-syntax "stxcase-scheme.rkt"))
 
+  (define unique (gensym))
+
+  (define (syntax-local-value/immediate/validate
+            id
+            [fail #f]
+            [ctx #f])
+    (define (fail/unique) (values #f unique))
+    (define-values (value target)
+      (syntax-local-value/immediate id fail/unique ctx))
+    (cond
+      [(eq? target unique)
+       (cond
+         [fail (fail)]
+         [else (raise-syntax-error 'syntax-local-value/immediate
+                 (format "not defined as syntax\n  identifier: ~e" id)
+                 id)])]
+      [(identifier? target)
+       (unless (or (syntax-property target 'not-free-identifier=?)
+                   (free-identifier=? id target))
+         (eprintf "~a:\n  ~e\n  ~e\n"
+           "rename transformer but not free-identifier=?"
+           id
+           target))
+       (values value target)]
+      [else
+       (values value target)]))
+
+  (define (syntax-local-value/validate id0 [fail #f] [ctx #f])
+    (define (fail/immediate) (values #f unique))
+    (let loop ([id id0])
+      (define-values (value target)
+        (syntax-local-value/immediate/validate id fail/immediate ctx))
+      (cond
+        [(eq? target unique)
+         (cond
+           [fail (fail)]
+           [else (raise-syntax-error 'syntax-local-value
+                   (format "not defined as syntax\n  identifier: ~e" id0)
+                   id0)])]
+        [(identifier? target) (loop target)]
+        [else value])))
+
   (#%provide (all-from-except "pre-base.rkt"
                               open-input-file
                               open-output-file
@@ -24,7 +66,12 @@
                               with-output-to-file
                               directory-list
                               regexp-replace*
-                              new-apply-proc)
+                              new-apply-proc
+                              syntax-local-value
+                              syntax-local-value/immediate)
+             (rename syntax-local-value/validate syntax-local-value)
+             (rename syntax-local-value/immediate/validate
+                     syntax-local-value/immediate)
              struct
              (all-from "hash.rkt")
              (all-from "list.rkt")
