@@ -38,10 +38,9 @@
        (check-identifier! #'predicate-name)
        (check-identifier! #'supported-name)
        (for-each check-identifier! (syntax->list #'(method-name ...)))
-       (define/with-syntax (index ...)
-         (for/list ([idx (in-naturals)]
-                    [stx (in-list (syntax->list #'(method-name ...)))])
-           idx))
+       (define n (length (syntax->list #'(method-name ...))))
+       (define/with-syntax size n)
+       (define/with-syntax (index ...) (for/list ([i (in-range n)]) i))
        (define/with-syntax contract-str
          (format "~s" (syntax-e #'predicate-name)))
        (define/with-syntax (default-pred-name ...)
@@ -52,11 +51,25 @@
            (define-syntax generic-name
              (make-generic-info (quote-syntax property-name)
                                 (list (quote-syntax method-name) ...)))
+           (define (prop:guard x info)
+             (unless (and (vector? x) (= (vector-length x) 'size))
+               (raise-argument-error 'generic-name
+                                     (format "expected a vector of length ~a"
+                                             'size)
+                                     x))
+             (check-generic-method
+               #:given-generic generic-name
+               #:given-method method-name
+               #:given-signature method-signature
+               #:given-impl (vector-ref x 'index)
+               #:given-source original)
+             ...
+             x)
            (define-values (property-name prop:pred prop:get)
-             (make-struct-type-property 'generic-name))
+             (make-struct-type-property 'generic-name prop:guard))
            (define (predicate-name self-name)
              (or (prop:pred self-name) (default-pred-name self-name) ...))
-           (define (accessor-name who self-name)
+           (define (accessor-name self-name [who 'accessor-name])
              (cond
                [(prop:pred self-name) (prop:get self-name)]
                [(default-pred-name self-name) default-impl-name]
@@ -66,14 +79,14 @@
              #:define-supported supported-name
              #:given-self self-name
              #:given-methods [method-name ...]
-             #:given-table (accessor-name 'supported-name self-name)
+             #:given-table (accessor-name self-name 'supported-name)
              #:given-source original)
            (define-generic-method
              #:define-method method-name
              #:given-signature method-signature
              #:given-self self-name
              #:given-proc
-             (or (vector-ref (accessor-name 'method-name self-name) 'index)
+             (or (vector-ref (accessor-name self-name 'method-name) 'index)
                  (vector-ref fallback-name 'index))
              #:given-source original)
            ...
@@ -318,6 +331,101 @@
                                  "not implemented for ~e"
                                  self-name))
            method-apply))]))
+
+(define-syntax (check-generic-method stx)
+  (syntax-case stx ()
+    [(check-generic-method
+       #:given-generic generic-name
+       #:given-method method-name
+       #:given-signature method-signature
+       #:given-impl method-expr
+       #:given-source original)
+     (parameterize ([current-syntax-context #'original])
+       (check-identifier! #'generic-name)
+       (check-identifier! #'method-name)
+       (define-values (req req-kw opt opt-kw rest)
+         (parse-method-signature #'method-signature))
+       (define/with-syntax req-n (length req))
+       (define/with-syntax opt-n (length opt))
+       (define/with-syntax rest? (identifier? rest))
+       (define/with-syntax [req-key ...]
+         (sort (map car req-kw) keyword<? #:key syntax-e))
+       (define/with-syntax [opt-key ...]
+         (sort (map car opt-kw) keyword<? #:key syntax-e))
+       #'(check-method 'generic-name
+                       'method-name
+                       method-expr
+                       'req-n
+                       'opt-n
+                       'rest?
+                       '(req-key ...)
+                       '(opt-key ...)))]))
+
+(define (check-method who what v req-n opt-n rest? req-kws opt-kws)
+  (when v
+
+    (define (expect fmt . args)
+      (format "expected ~a for method ~s"
+              (apply format fmt args)
+              what))
+    (define (arguments n)
+      (format "~a ~a" n (if (= n 1) "argument" "arguments")))
+
+    (unless (procedure? v)
+      (raise-arguments-error who (expect "a procedure") (format "~s" what) v))
+
+    (define arity (procedure-arity v))
+    (for ([i (in-range req-n (+ req-n opt-n 1))])
+      (unless (arity-includes? arity i)
+        (raise-arguments-error
+         who
+         (expect "a procedure that accepts ~a" (arguments i))
+         (format "~s" what)
+         v)))
+    (when rest?
+      (unless (arity-includes? arity (arity-at-least (+ req-n opt-n)))
+        (raise-arguments-error
+         who
+         (expect "a procedure that accepts ~a or more arguments" (+ req-n opt-n))
+         (format "~s" what)
+         v)))
+
+    (define-values (v-req-kws v-opt-kws) (procedure-keywords v))
+
+    (define (check-accepts kws [among v-opt-kws])
+      (cond
+        [(null? kws) (void)]
+        [(or (null? among)
+             (keyword<? (car kws) (car among)))
+         (raise-arguments-error
+          who
+          (expect "a procedure that accepts keyword argument ~s" (car kws))
+          (format "~s" what)
+          v)]
+        [(keyword<? (car among) (car kws))
+         (check-accepts kws (cdr among))]
+        [else
+         (check-accepts (cdr kws) (cdr among))]))
+    (when v-opt-kws
+      (check-accepts req-kws)
+      (check-accepts opt-kws))
+
+    (define (check-requires kws [among v-req-kws])
+      (cond
+        [(null? among) (void)]
+        [(or (null? kws)
+             (keyword<? (car among) (car kws)))
+         (raise-arguments-error
+          who
+          (expect "a procedure that does not require keyword argument ~s"
+                  (car among))
+          (format "~s" what)
+          v)]
+        [(keyword<? (car kws) (car among))
+         (check-requires kws (cdr among))]
+        [else
+         (check-requires (cdr kws) (cdr among))]))
+    (check-requires req-kws)))
 
 #;(define-syntax (define-generics stx)
   (syntax-case stx () ;; can't use syntax-parse, since it depends on us
