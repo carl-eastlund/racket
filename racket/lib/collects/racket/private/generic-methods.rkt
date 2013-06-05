@@ -30,17 +30,37 @@
       (define info (syntax-local-value stx (lambda () #f)))
       (unless (generic-info? info)
         (raise-syntax-error name "bad generics group name" ctx stx))
-      info))
+      info)
+
+    (define (unimplemented-transformer un stx)
+      (define name (unimplemented-method un))
+      (raise-syntax-error name "method not implemented" stx))
+
+    (define-values (struct:unimplemented
+                    make-unimplemented
+                    unimplemented?
+                    unimplemented-get
+                    unimplemented-set!)
+      (make-struct-type 'unimplemented
+                        #f
+                        1
+                        0
+                        #f
+                        (list (cons prop:set!-transformer
+                                    unimplemented-transformer))))
+
+    (define unimplemented-method
+      (make-struct-field-accessor unimplemented-get 0 'method)))
 
   (define-syntax-parameter generic-method-context #f)
 
-  (define-syntax (unimplemented stx)
-    (raise-syntax-error #f "unimplemented generic method" stx))
-
   (define-syntax (implementation stx)
-    (syntax-case stx (unimplemented)
-      [(_ unimplemented) #'(quote #f)]
-      [(_ expr) #'expr]))
+    (syntax-case stx ()
+      [(_ method)
+       (let ([val (syntax-local-value #'method (lambda () #f))])
+         (cond
+           [(unimplemented? val) #'(quote #f)]
+           [else #'method]))]))
 
   (define-syntax (generic-property stx)
     (syntax-case stx ()
@@ -58,7 +78,7 @@
            (syntax/loc stx
              (syntax-parameterize ([generic-method-context #'gen])
                (letrec-syntaxes+values
-                   ([(method) (make-rename-transformer #'unimplemented)] ...)
+                   ([(method) (make-unimplemented 'method)] ...)
                    ()
                  def ...
                  (vector (implementation method) ...))))))]))
@@ -77,18 +97,17 @@
            (raise-syntax-error 'define/generic "expected an identifier" #'bind))
          (unless (identifier? #'ref)
            (raise-syntax-error 'define/generic "expected an identifier" #'ref))
-         (define methods
-           (map syntax-local-get-shadower
-                (map (syntax-local-make-delta-introducer gen-id)
-                     (generic-info-methods gen-val))))
+         (define delta (syntax-local-make-delta-introducer gen-id))
+         (define methods (generic-info-methods gen-val))
          (define matches
            (let loop ([methods methods])
              (cond
                [(null? methods) '()]
-               [(free-identifier=? (car methods) #'ref)
+               [(free-identifier=? (syntax-local-get-shadower
+                                    (delta (car methods)))
+                                   #'ref)
                 (cons (car methods) (loop (cdr methods)))]
-               [else
-                (loop (cdr methods))])))
+               [else (loop (cdr methods))])))
          (unless (pair? matches)
            (raise-syntax-error 'define/generic
                                (format "~.s is not a method of ~.s"
