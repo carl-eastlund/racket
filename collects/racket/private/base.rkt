@@ -20,6 +20,7 @@
             id
             [fail #f]
             [ctx #f])
+    (validate-id! id)
     (define (fail/unique) (values #f unique))
     (define-values (value target)
       (syntax-local-value/immediate id fail/unique ctx))
@@ -31,6 +32,7 @@
                  (format "not defined as syntax\n  identifier: ~e" id)
                  id)])]
       [(identifier? target)
+       (validate-id! target)
        (unless (or (syntax-property target 'not-free-identifier=?)
                    (free-identifier=? id target))
          (eprintf "~a:\n  ~e\n  ~e\n"
@@ -55,6 +57,28 @@
                    id0)])]
         [(identifier? target) (loop target)]
         [else value])))
+
+  (define (validate-id! id)
+    (define id2 (syntax-local-introduce id))
+    (check-id! id)
+    (check-id! id2)
+    (check-ids! id id2)
+    (hash-set! id-table id id2))
+
+  (define (check-id! id)
+    (for ([(k v) (in-hash id-table)])
+      (check-ids! id k)
+      (check-ids! id v)))
+
+  (define (check-ids! a b)
+    (when (bound-identifier=? a b)
+      (unless (free-identifier=? a b)
+        (eprintf "~a:\n  ~e\n  ~e\n"
+          "bound-identifier=? but not free-identifier=?"
+          a
+          b))))
+
+  (define id-table (make-hasheq))
 
   (#%provide (all-from-except "pre-base.rkt"
                               open-input-file
