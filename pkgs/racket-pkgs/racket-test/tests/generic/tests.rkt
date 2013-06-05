@@ -18,5 +18,6 @@
          "poly-contracts.rkt"
          "empty-interface.rkt"
          "top-level.rkt"
-         "pr13737.rkt")
+         "pr13737.rkt"
+         "marked.rkt")
 
