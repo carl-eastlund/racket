@@ -390,12 +390,13 @@
                               (if (= 1 req-n) "argument" "arguments"))))]
       [else
        (for ([i (in-range req-n (+ req-n opt-n 1))])
-         (arity-error (format "~a ~a required ~a and up to ~a optional ~a"
-                              "expected a procedure that accepts"
-                              req-n
-                              (if (= 1 req-n) "argument" "arguments")
-                              opt-n
-                              (if (= 1 opt-n) "argument" "arguments"))))])
+         (unless (arity-includes? arity i)
+           (arity-error (format "~a ~a required ~a and up to ~a optional ~a"
+                                "expected a procedure that accepts"
+                                req-n
+                                (if (= 1 req-n) "argument" "arguments")
+                                opt-n
+                                (if (= 1 opt-n) "argument" "arguments")))))])
 
     (define-values (v-req-kws v-opt-kws) (procedure-keywords v))
 
