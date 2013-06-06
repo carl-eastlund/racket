@@ -7,7 +7,7 @@
 
   (check-exn #rx"expected 2 arguments after keyword"
              (lambda () (convert-compile-time-error
-                         (struct foo () #:methods gen:equal+hash ()))))
+                         (struct foo () #:methods gen:equal+hash))))
   (check-exn #rx"not a name for a generics group"
              (lambda () (convert-compile-time-error
                          (struct foo () #:methods 3 ()))))
