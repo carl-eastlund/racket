@@ -25,7 +25,7 @@
     [(_ #:define-generic generic-name
         #:define-predicate predicate-name
         #:define-property property-name
-        #:define-accessor accessor-name
+        #:define-accessor prop:name
         #:define-supported supported-name
         #:define-methods [(method-name . method-signature) ...]
         #:given-self self-name
@@ -33,10 +33,12 @@
         #:given-fallbacks [fallback-defn ...]
         #:given-source original)
      (parameterize ([current-syntax-context #'original])
-       (check-identifier! #'self-name)
        (check-identifier! #'generic-name)
        (check-identifier! #'predicate-name)
+       (check-identifier! #'property-name)
+       (check-identifier! #'prop:get)
        (check-identifier! #'supported-name)
+       (check-identifier! #'self-name)
        (for-each check-identifier! (syntax->list #'(method-name ...)))
        (define n (length (syntax->list #'(method-name ...))))
        (define/with-syntax size n)
