@@ -287,14 +287,13 @@
           (define gen-id (cadr p))
           (define gen-defs (caddr p))
           (define args (cdddr p))
-          (unless (identifier? gen-id)
-            (bad "the first argument to the " (car p) " is not an identifier"))
           (define gen-val
-            (syntax-local-value gen-id (lambda () #f)))
+            (and (identifier? gen-id)
+                 (syntax-local-value gen-id (lambda () #f))))
           (unless (generic-info? gen-val)
             (bad "the first argument to the "
                  (car p)
-                 (format " for ~s is not a name for a generics group"
+                 (format " is not a name for a generics group"
                          (syntax-e gen-id))))
           (loop (list* #'#:property
                        (quasisyntax/loc gen-id
