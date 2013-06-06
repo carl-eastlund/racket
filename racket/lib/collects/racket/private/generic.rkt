@@ -68,7 +68,7 @@
              ...
              x)
            (define-values (property-name prop:pred accessor-name)
-             (make-struct-type-property 'generic-name prop:guard))
+             (make-struct-type-property 'generic-name prop:guard '() #t))
            (define (predicate-name self-name)
              (or (prop:pred self-name) (default-pred-name self-name) ...))
            (define (table-name self-name [who 'table-name])
