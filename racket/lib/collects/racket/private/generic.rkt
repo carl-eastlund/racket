@@ -364,68 +364,83 @@
 (define (check-method who what v req-n opt-n rest? req-kws opt-kws)
   (when v
 
-    (define (expect fmt . args)
-      (format "expected ~a for method ~s"
-              (apply format fmt args)
-              what))
-    (define (arguments n)
-      (format "~a ~a" n (if (= n 1) "argument" "arguments")))
-
     (unless (procedure? v)
-      (raise-arguments-error who (expect "a procedure") (format "~s" what) v))
+      (define msg "generic method definition is not a function")
+      (raise-arguments-error who msg (format "~s" what) v))
+
+    (define (arity-error why)
+      (define msg
+        (format "generic method definition has an incorrect arity; ~a" why))
+      (raise-arguments-error who msg (format "~s" what) v))
 
     (define arity (procedure-arity v))
-    (for ([i (in-range req-n (+ req-n opt-n 1))])
-      (unless (arity-includes? arity i)
-        (raise-arguments-error
-         who
-         (expect "a procedure that accepts ~a" (arguments i))
-         (format "~s" what)
-         v)))
-    (when rest?
-      (unless (arity-includes? arity (arity-at-least (+ req-n opt-n)))
-        (raise-arguments-error
-         who
-         (expect "a procedure that accepts ~a or more arguments" (+ req-n opt-n))
-         (format "~s" what)
-         v)))
+
+    (cond
+      [rest?
+       (unless (arity-includes? arity (arity-at-least req-n))
+         (arity-error
+           (format "expected a procedure that accepts ~a or more arguments"
+                   req-n)))]
+      [(null? opt-n)
+       (unless (arity-includes? arity req-n)
+         (arity-error (format "expected a procedure that accepts ~a ~a"
+                              req-n
+                              (if (= 1 req-n) "argument" "arguments"))))]
+      [else
+       (for ([i (in-range req-n (+ req-n opt-n 1))])
+         (arity-error (format "~a ~a required ~a and up to ~a optional ~a"
+                              "expected a procedure that accepts"
+                              req-n
+                              (if (= 1 req-n) "argument" "arguments")
+                              opt-n
+                              (if (= 1 opt-n) "argument" "arguments"))))])
 
     (define-values (v-req-kws v-opt-kws) (procedure-keywords v))
 
-    (define (check-accepts kws [among v-opt-kws])
+    (define (keyword-subset? xs ys)
       (cond
-        [(null? kws) (void)]
-        [(or (null? among)
-             (keyword<? (car kws) (car among)))
-         (raise-arguments-error
-          who
-          (expect "a procedure that accepts keyword argument ~s" (car kws))
-          (format "~s" what)
-          v)]
-        [(keyword<? (car among) (car kws))
-         (check-accepts kws (cdr among))]
+        [(null? xs) #t]
+        [(null? ys) #f]
         [else
-         (check-accepts (cdr kws) (cdr among))]))
-    (when v-opt-kws
-      (check-accepts req-kws)
-      (check-accepts opt-kws))
+         (define x (car xs))
+         (define y (car ys))
+         (cond
+           [(keyword<? x y) #f]
+           [(keyword<? y x) (keyword-subset? xs (cdr ys))]
+           [else (keyword-subset? (cdr xs) (cdr ys))])]))
 
-    (define (check-requires kws [among v-req-kws])
-      (cond
-        [(null? among) (void)]
-        [(or (null? kws)
-             (keyword<? (car among) (car kws)))
-         (raise-arguments-error
-          who
-          (expect "a procedure that does not require keyword argument ~s"
-                  (car among))
-          (format "~s" what)
-          v)]
-        [(keyword<? (car kws) (car among))
-         (check-requires kws (cdr among))]
-        [else
-         (check-requires (cdr kws) (cdr among))]))
-    (check-requires req-kws)))
+    (unless (and (keyword-subset? v-req-kws req-kws)
+                 (or (not v-opt-kws)
+                     (and (keyword-subset? req-kws v-opt-kws)
+                          (keyword-subset? opt-kws v-opt-kws))))
+      (define r (keywords-message #t req-kws))
+      (define o (keywords-message #f opt-kws))
+      (arity-error (format "expected a procedure that accepts ~a~a" r o)))))
+
+(define (keywords-message required? kws)
+  (cond
+    [(null? kws) (if required? "no required keyword arguments" "")]
+    [(null? (cdr kws))
+     (format "~athe ~a keyword argument ~s"
+             (if required? "" " and ")
+             (if required? "required" "optional")
+             (car kws))]
+    [(null? (cddr kws))
+     (format "~athe ~a keyword arguments ~s and ~s"
+             (if required? "" " and ")
+             (if required? "required" "optional")
+             (car kws)
+             (cadr kws))]
+    [else
+     (define strs
+       (let loop ([kws kws])
+         (cond
+           [(null? (cdr kws)) (list (format "and ~s" (car kws)))]
+           [else (cons (format "~s, " (car kws)) (loop (cdr kws)))])))
+     (format "~athe ~a keyword arguments ~a"
+             (if required? "" " and ")
+             (if required? "required" "optional")
+             (apply string-append strs))]))
 
 #;(define-syntax (define-generics stx)
   (syntax-case stx () ;; can't use syntax-parse, since it depends on us
