@@ -383,7 +383,7 @@
          (arity-error
            (format "expected a procedure that accepts ~a or more arguments"
                    req-n)))]
-      [(null? opt-n)
+      [(zero? opt-n)
        (unless (arity-includes? arity req-n)
          (arity-error (format "expected a procedure that accepts ~a ~a"
                               req-n
