@@ -25,7 +25,7 @@
     [(_ #:define-generic generic-name
         #:define-predicate predicate-name
         #:define-property property-name
-        #:define-accessor prop:name
+        #:define-accessor accessor-name
         #:define-supported supported-name
         #:define-methods [(method-name . method-signature) ...]
         #:given-self self-name
@@ -36,7 +36,7 @@
        (check-identifier! #'generic-name)
        (check-identifier! #'predicate-name)
        (check-identifier! #'property-name)
-       (check-identifier! #'prop:get)
+       (check-identifier! #'accessor-name)
        (check-identifier! #'supported-name)
        (check-identifier! #'self-name)
        (for-each check-identifier! (syntax->list #'(method-name ...)))
@@ -67,13 +67,13 @@
                #:given-source original)
              ...
              x)
-           (define-values (property-name prop:pred prop:get)
+           (define-values (property-name prop:pred accessor-name)
              (make-struct-type-property 'generic-name prop:guard))
            (define (predicate-name self-name)
              (or (prop:pred self-name) (default-pred-name self-name) ...))
-           (define (accessor-name self-name [who 'accessor-name])
+           (define (table-name self-name [who 'table-name])
              (cond
-               [(prop:pred self-name) (prop:get self-name)]
+               [(prop:pred self-name) (accessor-name self-name)]
                [(default-pred-name self-name) default-impl-name]
                ...
                [else (raise-syntax-error who 'contract-name self-name)]))
@@ -81,14 +81,14 @@
              #:define-supported supported-name
              #:given-self self-name
              #:given-methods [method-name ...]
-             #:given-table (accessor-name self-name 'supported-name)
+             #:given-table (table-name self-name 'supported-name)
              #:given-source original)
            (define-generic-method
              #:define-method method-name
              #:given-signature method-signature
              #:given-self self-name
              #:given-proc
-             (or (vector-ref (accessor-name self-name 'method-name) 'index)
+             (or (vector-ref (table-name self-name 'method-name) 'index)
                  (vector-ref fallback-name 'index))
              #:given-source original)
            ...
@@ -161,11 +161,10 @@
           id))
       (unless (pair? matches)
         (wrong-syntax sig-stx
-                      "did not find ~a among ~a to ~s: ~s"
+                      "did not find ~a among ~a to ~s"
                       "the generic name"
                       "the required, by-position arguments"
-                      (syntax-e name-stx)
-                      (map syntax->datum req)))
+                      (syntax-e name-stx)))
       (when (pair? (cdr matches))
         (wrong-syntax (cadr matches)
                       "found ~a among the arguments to ~s"
