@@ -599,11 +599,73 @@
     #:stronger set-contract-stronger
     #:projection set-contract-projection))
 
-(define (implement-ht-set make-ht
-                          wrap-k unwrap-k
-                          s? s-ht set-s-ht! update-s
-                          s1? s1-ht
-                          s2? s2-ht)
+(define (implement-ht-set name
+                          make-ht
+                          wrap-k
+                          unwrap-k
+                          s?
+                          s-ht
+                          set-s-ht!
+                          update-s
+                          s1?
+                          s1-ht
+                          s2?
+                          s2-ht)
+
+  (define (s-custom-write s port mode)
+    (define ht (ht-set-table s))
+    (define print-elem
+      (cond
+        [(not mode) display]
+        [(integer? mode) (lambda (e port) (print e port mode))]
+        [else write]))
+    (define (print-prefix port)
+      (cond
+        [(equal? mode 0)
+         (write-string "(" port)
+         (display name port)]
+        [else
+         (write-wtring "#<" port)
+         (display name port)
+         (write-string ":" port)]))
+    (define (print-suffix port)
+      (cond
+        [(equal? mode 0)
+         (write-string ")" port)]
+        [else
+         (write-string ">" port)]))
+    (define (print-one-line port)
+      (print-prefix port)
+      (for ([k (in-hash-keys ht)])
+        (write-string " " port)
+        (print-elem (upwrap-k k) port))
+      (print-suffix port))
+    (define (print-multi-line port)
+      (define-values (line col pos) (port-next-location port))
+      (print-prefix port)
+      (for ([k (in-hash-keys ht)])
+        (pretty-print-newline port (pretty-print-columns))
+        (write-string (make-string (add1 col) #\space) port)
+        (print-elem (unwrap-k k) port))
+      (print-suffix port))
+    (cond
+      [(and (pretty-printing) (integer? (pretty-print-columns)))
+       (define proc
+         (let/ec esc
+           (define tport
+             (make-tentative-pretty-print-output-port
+              port
+              (- (pretty-print-columns) 1)
+              (lambda ()
+                (esc
+                 (lambda ()
+                   (tentative-pretty-print-port-cancel tport)
+                   (print-multi-line port))))))
+           (print-one-line tport)
+           (tentative-pretty-print-port-transfer tport port)
+           void))
+       (proc)]
+      [else (print-one-line port)]))
 
   (values s-custom-write s-hash-code1 s-hash-code2
           s-count s-member? s-add s-remove s-add! s-remove!
