@@ -599,6 +599,21 @@
     #:stronger set-contract-stronger
     #:projection set-contract-projection))
 
+(define (implement-ht-set make-ht
+                          wrap-k unwrap-k
+                          s? s-ht set-s-ht! update-s
+                          s1? s1-ht
+                          s2? s2-ht)
+
+  (values s-custom-write s-hash-code1 s-hash-code2
+          s-count s-member? s-add s-remove s-add! s-remove!
+          s->stream s-empty? s-first s-rest
+          s-clear s-copy s-clear! s-copy!
+          s-map s-for-each s->list
+          s=? s-subset? s-proper-subset?
+          s-union s-intersect s-subtract s-symm-diff
+          s-union! s-intersect! s-subtract! s-symm-diff!))
+
 (define-syntax (declare-ht-sets stx)
   (syntax-case stx ()
     [(_ declare-struct base-name
