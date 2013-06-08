@@ -1,5 +1,6 @@
 #lang racket/base
 (require (for-syntax racket/base
+                     racket/syntax
                      syntax/for-body)
          racket/serialize
          racket/pretty
@@ -77,7 +78,8 @@
 
   make-custom-set
   make-custom-mutable-set
-  make-custom-weak-set)
+  make-custom-weak-set
+  make-custom-set-constructors)
 
 (define (supported? set sym)
   (cond
@@ -596,6 +598,229 @@
     #:first-order set-contract-first-order
     #:stronger set-contract-stronger
     #:projection set-contract-projection))
+
+(define-syntax (declare-ht-sets stx)
+  (syntax-case stx ()
+    [(_ declare-struct base-name
+        make-immutable-ht
+        make-mutable-ht
+        make-weak-ht
+        wrap-key
+        unwrap-key)
+     ;; This macro is for use in this file only,
+     ;; so we don't need to do thorough checking of inputs.
+     (let ()
+       (define (derived fmt)
+         (format-id #'base-name #:source #'base-name fmt #'base-name))
+
+       ;; Visible names and quoted symbols:
+       (define/with-syntax s? (derived "ht-~a?"))
+       (define/with-syntax is? (derived "ht-immutable-~a?"))
+       (define/with-syntax ms? (derived "ht-mutable-~a?"))
+       (define/with-syntax ws? (derived "ht-weak-~a?"))
+       (define/with-syntax make-is (derived "make-immutable-ht-~a"))
+       (define/with-syntax make-ms (derived "make-mutable-ht-~a"))
+       (define/with-syntax make-ws (derived "make-weak-ht-~a"))
+       (define/with-syntax is-name (derived "~a"))
+       (define/with-syntax ms-name (derived "mutable-~a"))
+       (define/with-syntax ws-name (derived "weak-~a"))
+
+       #'(begin
+           (define (s? x)
+             (or (is? x) (ms? x) (ws? x)))
+           (define-values [is-custom-write is-code1 is-code2
+                           is-count is-member? is-add is-remove
+                           is->stream is-clear is-copy
+                           is-empty? is-first is-rest
+                           is-map is-for-each is->list
+                           is=? is-subset? is-proper-subset?
+                           is-union is-intersect is-subtract is-symm-diff]
+             (implement-immutable-sets 'is-name
+               make-immutable-ht
+               wrap-key
+               unwrap-key
+               (lambda (x) (is? x))
+               (lambda (x) (make-is x))
+               (lambda (x) (is-table x))
+               (lambda (x) (ms? x))
+               (lambda (x) (ms-table x))
+               (lambda (x) (ws? x))
+               (lambda (x) (ws-table x))))
+           (define-values [ms-custom-write ms-code1 ms-code2
+                           ms-count ms-member? ms-add! ms-remove!
+                           ms-clear! ms-clear ms-copy
+                           ms->stream ms-empty? ms-first ms-rest
+                           ms-map ms-for-each ms->list
+                           ms-subset? ms-proper-subset?
+                           ms-union! ms-intersect! ms-subtract! ms-symm-diff!]
+             (implement-mutable-sets 'ms-name
+               make-mutable-ht
+               wrap-key
+               unwrap-key
+               (lambda (x) (ms? x))
+               (lambda (x) (make-ms x))
+               (lambda (x) (ms-table x))
+               (lambda (x) (set-ms-table! x))
+               (lambda (x) (is? x))
+               (lambda (x) (is-table x))
+               (lambda (x) (ws? x))
+               (lambda (x) (ws-table x))))
+           (define-values [ws-custom-write ws-code1 ws-code2
+                           ws-count ws-member? ws-add! ws-remove!
+                           ws-clear! ws-clear ws-copy
+                           ws->stream ws-empty? ws-first ws-rest
+                           ws-map ws-for-each ws->list
+                           ws-subset? ws-proper-subset?
+                           ws-union! ws-intersect! ws-subtract! ws-symm-diff!]
+             (implement-mutable-sets 'ws-name
+               make-weak-ht
+               wrap-key
+               unwrap-key
+               (lambda (x) (ws? x))
+               (lambda (x) (make-ws x))
+               (lambda (x) (ws-table x))
+               (lambda (x) (set-ws-table! x))
+               (lambda (x) (is? x))
+               (lambda (x) (is-table x))
+               (lambda (x) (ms? x))
+               (lambda (x) (ms-table x))))
+           (declare-struct is-struct [table]
+             #:omit-define-syntaxes
+             #:reflection-name 'is-name
+             #:constructor-name make-is
+             #:property prop:custom-print-quotable 'never
+             #:property prop:custom-write is-custom-write
+             #:property prop:equal+hash (list is=? is-code1 is-code2)
+             #:property prop:sequence is->stream
+             #:property prop:stream (vector is-empty? is-first is-rest)
+             #:methods gen:set
+             [(define set-count is-count)
+              (define set-member? is-member?)
+              (define set-add is-add)
+              (define set-remove is-remove)
+              (define set->stream is->stream)
+              (define set-clear is-clear)
+              (define set-copy is-copy)
+              (define set-empty? is-empty?)
+              (define set-first is-first)
+              (define set-rest is-rest)
+              (define set-map is-map)
+              (define set-for-each is-for-each)
+              (define set->list is->list)
+              (define set=? is=?)
+              (define subset? is-subset?)
+              (define proper-subset? is-proper-subset?)
+              (define simple-set-union is-union)
+              (define simple-set-intersect is-intersect)
+              (define simple-set-subtract is-subtract)
+              (define simple-set-symmetric-difference is-symm-diff)])
+           (declare-struct ms-struct [table]
+             #:mutable
+             #:omit-define-syntaxes
+             #:reflection-name 'ms-name
+             #:constructor-name make-ms
+             #:property prop:custom-print-quotable 'never
+             #:property prop:custom-write ms-custom-write
+             #:property prop:equal+hash (list ms=? ms-code1 ms-code2)
+             #:property prop:sequence ms->stream
+             #:property prop:stream (vector ms-empty? ms-first ms-rest)
+             #:methods gen:set
+             [(define set-count ms-count)
+              (define set-member? ms-member?)
+              (define set-add! ms-add!)
+              (define set-remove! ms-remove!)
+              (define set-clear! ms-clear!)
+              (define set-clear ms-clear)
+              (define set-copy ms-copy)
+              (define set->stream ms->stream)
+              (define set-empty? ms-empty?)
+              (define set-first ms-first)
+              (define set-rest ms-rest)
+              (define set-map ms-map)
+              (define set-for-each ms-for-each)
+              (define set->list ms->list)
+              (define set=? ms=?)
+              (define subset? ms-subset?)
+              (define proper-subset? ms-proper-subset?)
+              (define simple-set-union! ms-union!)
+              (define simple-set-intersect! ms-intersect!)
+              (define simple-set-subtract! ms-subtract!)
+              (define simple-set-symmetric-difference! ms-symm-diff!)])
+           (declare-struct ws-struct [table]
+             #:mutable
+             #:omit-define-syntaxes
+             #:reflection-name 'ws-name
+             #:constructor-name make-ws
+             #:property prop:custom-print-quotable 'never
+             #:property prop:custom-write ws-custom-write
+             #:property prop:equal+hash (list ws=? ws-code1 ws-code2)
+             #:property prop:sequence ws->stream
+             #:property prop:stream (vector ws-empty? ws-first ws-rest)
+             #:methods gen:set
+             [(define set-count ws-count)
+              (define set-member? ws-member?)
+              (define set-add! ws-add!)
+              (define set-remove! ws-remove!)
+              (define set-clear! ws-clear!)
+              (define set-clear ws-clear)
+              (define set-copy ws-copy)
+              (define set->stream ws->stream)
+              (define set-empty? ws-empty?)
+              (define set-first ws-first)
+              (define set-rest ws-rest)
+              (define set-map ws-map)
+              (define set-for-each ws-for-each)
+              (define set->list ws->list)
+              (define set=? ws=?)
+              (define subset? ws-subset?)
+              (define proper-subset? ws-proper-subset?)
+              (define simple-set-union! ws-union!)
+              (define simple-set-intersect! ws-intersect!)
+              (define simple-set-subtract! ws-subtract!)
+              (define simple-set-symmetric-difference! ws-symm-diff!)])))]))
+
+(declare-sets serializable-struct set set-equal?
+  make-immutable-hash
+  make-hash
+  make-weak-hash
+  values
+  values)
+
+(declare-sets serializable-struct seteqv set-eqv?
+  make-immutable-hasheqv
+  make-hasheqv
+  make-weak-hasheqv
+  values
+  values)
+
+(declare-sets serializable-struct seteq set-eq?
+  make-immutable-hasheq
+  make-hasheq
+  make-weak-hasheq
+  values
+  values)
+
+(define (make-custom-set-types =? [hc (lambda (x) 1)] [hc2 (lambda (x) 1)])
+  (struct wrapper [contents]
+    #:methods gen:equal+hash
+    [(define (equal-proc x y f)
+       (=? (wrapper-contents x) (wrapper-contents y)))
+     (define (hash-proc x) (hc (wrapper-contents x)))
+     (define (hash2-proc x) (hc2 (wrapper-contents x)))])
+  (declare-sets struct custom-set set-custom?
+    make-immutable-hash
+    make-hash
+    make-weak-hash
+    wrapper
+    wrapper-contents)
+  (values
+    set-custom?
+    custom-set?
+    mutable-custom-set?
+    weak-custom-set?
+    custom-set
+    mutable-custom-set
+    weak-custom-set))
 
 (define (ht-set-custom-write s port mode)
   (define ht (ht-set-table s))
