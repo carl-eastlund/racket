@@ -63,12 +63,21 @@
   set-equal?
   set list->set for/set for*/set
   mutable-set list->mutable-set for/mutable-set for*/mutable-set
+  weak-set list->weak-set for/weak-set for*/weak-set
+
   set-eq?
   seteq list->seteq for/seteq for*/seteq
   mutable-seteq list->mutable-seteq for/mutable-seteq for*/mutable-seteq
+  weak-seteq list->weak-seteq for/weak-seteq for*/weak-seteq
+
   set-eqv?
   seteqv list->seteqv for/seteqv for*/seteqv
-  mutable-seteqv list->mutable-seteqv for/mutable-seteqv for*/mutable-seteqv)
+  mutable-seteqv list->mutable-seteqv for/mutable-seteqv for*/mutable-seteqv
+  weak-seteqv list->weak-seteqv for/weak-seteqv for*/weak-seteqv
+
+  make-custom-set
+  make-custom-mutable-set
+  make-custom-weak-set)
 
 (define (supported? set sym)
   (cond
