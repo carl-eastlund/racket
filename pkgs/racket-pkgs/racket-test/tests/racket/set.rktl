@@ -469,10 +469,10 @@
   (t weak-set weak-seteqv weak-seteq set seteqv seteq)
   (t weak-seteqv weak-seteq weak-set seteqv seteq set)
   (t weak-seteq weak-set weak-seteqv seteq set seteqv)
-  (t weak-set mutable-set mutable-seteq set seteq seteqv)
-  (t mutable-set weak-set weak-seteq set seteq seteqv)
-  (t mutable-intset weak-intset mutable-set intset set seteqv)
-  (t weak-intset mutable-intset weak-set intset seteqv seteq))
+  (t weak-set mutable-seteqv mutable-seteq set seteqv seteq)
+  (t mutable-set weak-seteqv weak-seteq set seteqv seteq)
+  (t mutable-intset mutable-set weak-set intset set seteqv)
+  (t weak-intset mutable-seteqv weak-seteq intset seteqv seteq))
 
 (test "#<set: 1>" 
       'print-set1
