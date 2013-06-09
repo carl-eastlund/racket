@@ -757,7 +757,7 @@
   (define (s=? s1 s2)
     (dprintf "(set=? ~v ~v)\n" s1 s2)
     (define ht1 (s-ht s1))
-    (define ht2 (alt-s-ht #f s1 s2))
+    (define ht2 (alt-s-ht 'set=? s1 s2))
     (and ht2
          (= (hash-count ht1) (hash-count ht2))
          (for/and ([k (in-hash-keys ht1)])
@@ -981,7 +981,7 @@
            (define-values [is-custom-write is-code1 is-code2
                            is-count is-member? is-add is-remove
                            is->stream is-empty? is-first is-rest
-                           is-clear is-copy
+                           is-copy is-clear
                            is-map is-for-each is->list
                            is-equal? is=? is-subset? is-proper-subset?
                            is-union is-intersect is-subtract is-symm-diff]

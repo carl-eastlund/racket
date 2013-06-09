@@ -204,10 +204,6 @@
 
   ;; Tests for the different set types:
 
-  (define (test=? result s1 s2)
-    (test result equal? s1 s2)
-    (test result set=? s1 s2))
-
   (define (t mset-A mset-B mset-C set-A set-B set-C)
 
     (define (t1 ms s subs just-elems just-supers)
@@ -232,27 +228,27 @@
 
       ;; Test equality:
 
-      (test=? #true ms msA)
-      (test=? #false ms msB)
-      (test=? #false ms msC)
-      (test=? #false ms sA)
-      (test=? #false ms sB)
-      (test=? #false ms sC)
-      (test=? #true ms ms)
-      (test=? (null? just-elems) ms ms-sub)
-      (test=? (null? just-supers) ms ms-super)
-      (test=? (and (null? subs) (null? just-supers)) ms ms-not-sub)
+      (test #true equal? ms msA)
+      (test #false equal? ms msB)
+      (test #false equal? ms msC)
+      (test #false equal? ms sA)
+      (test #false equal? ms sB)
+      (test #false equal? ms sC)
+      (test #true equal? ms ms)
+      (test (null? just-elems) equal? ms ms-sub)
+      (test (null? just-supers) equal? ms ms-super)
+      (test (and (null? subs) (null? just-supers)) equal? ms ms-not-sub)
 
-      (test=? #false s msA)
-      (test=? #false s msB)
-      (test=? #false s msC)
-      (test=? #true s sA)
-      (test=? #false s sB)
-      (test=? #false s sC)
-      (test=? #true s s)
-      (test=? (null? just-elems) s s-sub)
-      (test=? (null? just-supers) s s-super)
-      (test=? (and (null? subs) (null? just-supers)) s s-not-sub)
+      (test #false equal? s msA)
+      (test #false equal? s msB)
+      (test #false equal? s msC)
+      (test #true equal? s sA)
+      (test #false equal? s sB)
+      (test #false equal? s sC)
+      (test #true equal? s s)
+      (test (null? just-elems) equal? s s-sub)
+      (test (null? just-supers) equal? s s-super)
+      (test (and (null? subs) (null? just-supers)) equal? s s-not-sub)
 
       ;; Test membership:
 
@@ -263,6 +259,42 @@
       (for ([elem (in-list just-supers)])
         (test #false set-member? ms elem)
         (test #false set-member? s elem))
+
+      ;; Test set equality:
+
+      (test #true set=? ms ms)
+
+      (test #true set=? ms msA)
+      (test (null? just-elems) set=? ms ms-sub)
+      (test (null? just-supers) set=? ms ms-super)
+      (test (and (null? subs) (null? just-supers)) set=? ms ms-not-sub)
+
+      (test #true set=? ms sA)
+      (test (null? just-elems) set=? ms s-sub)
+      (test (null? just-supers) set=? ms s-super)
+      (test (and (null? subs) (null? just-supers)) set=? ms s-not-sub)
+
+      (err/rt-test (set=? ms msB))
+      (err/rt-test (set=? ms msC))
+      (err/rt-test (set=? ms sB))
+      (err/rt-test (set=? ms sC))
+
+      (test #true set=? s s)
+
+      (test #true set=? s msA)
+      (test (null? just-elems) set=? s ms-sub)
+      (test (null? just-supers) set=? s ms-super)
+      (test (and (null? subs) (null? just-supers)) set=? s ms-not-sub)
+
+      (test #true set=? s sA)
+      (test (null? just-elems) set=? s s-sub)
+      (test (null? just-supers) set=? s s-super)
+      (test (and (null? subs) (null? just-supers)) set=? s s-not-sub)
+
+      (err/rt-test (set=? s msB))
+      (err/rt-test (set=? s msC))
+      (err/rt-test (set=? s sB))
+      (err/rt-test (set=? s sC))
 
       ;; Test subset:
 
