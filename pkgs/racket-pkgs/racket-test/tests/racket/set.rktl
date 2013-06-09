@@ -202,6 +202,25 @@
 
 (let ()
 
+  (define (int=? x y rec) (fx= x y))
+  (define (int-hc1 x rec) (fxand x 1))
+  (define (int-hc2 x rec) (fxand x 2))
+  (define (intset . ints)
+    (for/fold
+        ([s (make-custom-set int=? int-hc1 int-hc2)])
+        ([i (in-list ints)])
+      (set-add s i)))
+  (define (mutable-intset . ints)
+    (define s (make-mutable-custom-set int=? int-hc1 int-hc2))
+    (for ([i (in-list ints)])
+      (set-add! s i))
+    s)
+  (define (weak-intset . ints)
+    (define s (make-weak-custom-set int=? int-hc1 int-hc2))
+    (for ([i (in-list ints)])
+      (set-add! s i))
+    s)
+
   ;; Tests for the different set types:
 
   (define (t mset-A mset-B mset-C set-A set-B set-C)
@@ -446,7 +465,14 @@
 
   (t mutable-set mutable-seteqv mutable-seteq set seteqv seteq)
   (t mutable-seteqv mutable-seteq mutable-set seteqv seteq set)
-  (t mutable-seteq mutable-set mutable-seteqv seteq set seteqv))
+  (t mutable-seteq mutable-set mutable-seteqv seteq set seteqv)
+  (t weak-set weak-seteqv weak-seteq set seteqv seteq)
+  (t weak-seteqv weak-seteq weak-set seteqv seteq set)
+  (t weak-seteq weak-set weak-seteqv seteq set seteqv)
+  (t weak-set mutable-set mutable-seteq set seteq seteqv)
+  (t mutable-set weak-set weak-seteq set seteq seteqv)
+  (t mutable-intset weak-intset mutable-set intset set seteqv)
+  (t weak-intset mutable-intset weak-set intset seteqv seteq))
 
 (test "#<set: 1>" 
       'print-set1
