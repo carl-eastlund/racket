@@ -1029,8 +1029,8 @@
                (lambda (s) (ws-table s))))
            (define-values [ws-custom-write ws-code1 ws-code2
                            ws-count ws-member? ws-add! ws-remove!
-                           ws-clear! ws-clear ws-copy
                            ws->stream ws-empty? ws-first ws-rest
+                           ws-copy ws-clear ws-clear!
                            ws-map ws-for-each ws->list
                            ws-equal? ws=? ws-subset? ws-proper-subset?
                            ws-union! ws-intersect! ws-subtract! ws-symm-diff!]
