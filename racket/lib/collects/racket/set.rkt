@@ -599,18 +599,11 @@
     #:stronger set-contract-stronger
     #:projection set-contract-projection))
 
-(define (implement-ht-set name
-                          make-ht
-                          wrap-k
-                          unwrap-k
-                          s?
-                          s-ht
-                          set-s-ht!
-                          update-s
-                          s1?
-                          s1-ht
-                          s2?
-                          s2-ht)
+(define (implement-ht-set name ;; e.g. 'mutable-seteqv
+                          desc ;; e.g. "(and/c set? set-eq?)"
+                          make-ht wrap-k unwrap-k
+                          s? s-ht update-s set-s-ht!
+                          alt1-s? alt1-s-ht alt2-s? alt2-s-ht)
 
   (define (s-custom-write s port mode)
     (define ht (ht-set-table s))
@@ -667,18 +660,215 @@
        (proc)]
       [else (print-one-line port)]))
 
-  (values s-custom-write s-hash-code1 s-hash-code2
+  (define (s-hash-code s [rec equal-hash-code]) (rec (s-ht s)))
+  (define (s-count s) (hash-count (s-ht s)))
+  (define (s-member? s e) (hash-ref (s-ht s) (wrap-k e) #f))
+  (define (s-add s e) (update-s s (hash-set (s-ht s) (wrap-k e) #t)))
+  (define (s-add! s e) (hash-set! (s-ht s) (wrap-k e) #t))
+  (define (s-remove s e) (update-s s (hash-remove (s-ht s) (wrap-k e))))
+  (define (s-remove! s e) (hash-remove! (s-ht w) (wrap-k e)))
+  (define (s->stream s)
+    (stream-map unwrap-k (sequence->stream (in-hash-keys (s-ht s)))))
+  (define (s-empty? s) (zero? (hash-count (s-ht s))))
+  (define (s-first s) (unwrap-k (hash-first-key (s-ht s))))
+  (define (s-rest s)
+    (define ht (s-ht s))
+    (update-s s (hash-remove ht (hash-first-key ht))))
+  (define (s-copy s) s)
+  (define (s-copy! s) (update-s s (hash-copy (s-ht s))))
+  (define (s-clear s) (update-s s (make-ht)))
+  (define (s-clear! s) (set-s-ht! s (make-ht)))
+
+  (define (s-map s f)
+    ;; The order of set elements is unspecified.
+    ;; Therefore we can build the list in one pass,
+    ;; and not reverse at the end to preserve left-to-right order.
+    (for/fold ([lst '()]) ([k (in-hash-keys (s-ht s))])
+      (cons (f (unwrap-k k)) lst)))
+  (define (s->list s f)
+    ;; As with s-map above, we don't have to preserve element order.
+    (for/fold ([lst '()]) ([k (in-hash-keys (s-ht s))])
+      (cons (unwrap-k k) lst)))
+  (define (s-for-each s f)
+    (for ([k (in-hash-keys (s-ht s))])
+      (f (unwrap-k k))))
+  (define (s-equal? s1 s2)
+    (cond
+      [(s? s2)
+       (define ht1 (s-ht s1))
+       (define ht2 (s-ht s2))
+       (and (= (hash-count ht1) (hash-count ht2))
+            (for/and ([k (in-hash-keys ht1)])
+              (hash-ref ht2 k #f)))]
+      [else #f]))
+  (define (s=? s1 s2)
+    (define ht1 (s-ht s1))
+    (define ht2 (alt-s-ht 'set=? s1 s2))
+    (and (= (hash-count ht1) (hash-count ht2))
+         (for/and ([k (in-hash-keys ht1)])
+           (hash-ref ht2 k #f))))
+  (define (s-subset? s1 s2)
+    (define ht1 (s-ht s1))
+    (define ht2 (alt-s-ht 'subset? s1 s2))
+    (and (<= (hash-count ht1) (hash-count ht2))
+         (for/and ([k (in-hash-keys ht1)])
+           (hash-ref ht2 k #f))))
+  (define (s-proper-subset? s1 s2)
+    (define ht1 (s-ht s1))
+    (define ht2 (alt-s-ht 'proper-subset? s1 s2))
+    (and (< (hash-count ht1) (hash-count ht2))
+         (for/and ([k (in-hash-keys ht1)])
+           (hash-ref ht2 k #f))))
+
+  (define (s-union s1 s2)
+    (define ht1 (s-ht s1))
+    (define ht2 (alt-s-ht 'set-union s1 s2))
+    (define-values (target source)
+      (if (and (s? s2) (< (hash-count ht1) (hash-count ht2)))
+          (values ht2 ht1)
+          (values ht1 ht2)))
+    (define ht
+      (for/fold ([ht target]) ([k (in-hash-keys source)])
+        (hash-set ht k #t)))
+    (update-s s1 ht))
+  (define (s-intersect s1 s2)
+    (define ht1 (s-ht s1))
+    (define ht2 (alt-s-ht 'set-intersect s1 s2))
+    (define-values (target source)
+      (if (and (s? s2) (> (hash-count ht1) (hash-count ht2)))
+          (values ht2 ht1)
+          (values ht1 ht2)))
+    (define ht
+      (for/fold
+          ([ht target])
+          ([k (in-hash-keys target)]
+           #:unless (hash-ref source k #f))
+        (hash-remove ht k)))
+    (update-s s1 ht))
+  (define (s-subtract s1 s2)
+    (define ht1 (s-ht s1))
+    (define ht2 (alt-s-ht 'set-subtract s1 s2))
+    (define ht
+      (for/fold ([ht ht1]) ([k (in-hash-keys ht2)])
+        (hash-remove ht k)))
+    (update-s s1 ht))
+  (define (s-symm-diff s1 s2)
+    (define ht1 (s-ht s1))
+    (define ht2 (s-ht s2))
+    (define-values (target source)
+      (if (and (s? s2) (< (hash-count ht1) (hash-count ht2)))
+          (values ht2 ht1)
+          (values ht1 ht2)))
+    (define ht
+      (for/fold ([ht target]) ([k (in-hash-keys source)])
+        (if (hash-ref ht k #f)
+            (hash-remove ht k)
+            (hash-set ht k #t))))
+    (update-s s1 ht))
+
+  (define (s-union! s1 s2)
+    (define ht1 (s-ht s1))
+    (define ht2 (alt-s-ht 'set-union! s1 s2))
+    (for ([k (in-hash-keys ht2)])
+      (hash-set! ht1 k #t)))
+  (define (s-intersect! s1 s2)
+    (define ht1 (s-ht s1))
+    (define ht2 (alt-s-ht 'set-intersect! s1 s2))
+    ;; We cannot mutate the hash table while iterating through it.
+    ;; Therefore we must record the values to remove, then remove them.
+    ;; Order does not matter, so we can use for/fold instead of for/list.
+    (define to-remove
+      (for/fold ([lst '()]) ([k (in-hash-keys ht1)])
+        (if (hash-ref ht2 k #f)
+            lst
+            (cons k lst))))
+    (for ([k (in-list to-remove)])
+      (hash-remove! ht1 k)))
+  (define (s-subtract! s1 s2)
+    (define ht1 (s-ht s1))
+    (define ht2 (alt-s-ht 'set-subtract! s1 s2))
+    (for ([k (in-hash-keys ht2)])
+      (hash-remove! ht1 k)))
+  (define (s-symm-diff! s1 s2)
+    (define ht1 (s-ht s1))
+    (define ht2 (alt-s-ht 'set-symmetric-difference! s1 s2))
+    (for ([k (in-hash-keys ht2)])
+      (if (hash-ref ht1 k #f)
+          (hash-remove! ht1 k)
+          (hash-set! ht1 k #t))))
+
+  (define (alt-s-ht op s1 s2)
+    (cond
+      [(s? s2) (s-ht s2)]
+      [(alt1-s? s2) (alt1-s-ht s2)]
+      [(alt2-s? s2) (alt2-s-ht s2)]
+      [else (raise-argument-error op desc 1 s1 s2)]))
+
+  (values s-custom-write s-hash-code s-hash-code
           s-count s-member? s-add s-remove s-add! s-remove!
           s->stream s-empty? s-first s-rest
-          s-clear s-copy s-clear! s-copy!
+          s-copy s-copy! s-clear s-clear!
           s-map s-for-each s->list
-          s=? s-subset? s-proper-subset?
+          s-equal? s=? s-subset? s-proper-subset?
           s-union s-intersect s-subtract s-symm-diff
           s-union! s-intersect! s-subtract! s-symm-diff!))
 
+(define (implement-immutable-ht-set name desc
+                                    make-ht wrap-k unwrap-k
+                                    s? s-ht update-s
+                                    alt1-s? alt1-s-ht alt2-s? alt2-s-ht)
+
+  (define-values [s-custom-write s-hash-code s-hash-code
+                  s-count s-member? s-add s-remove s-add! s-remove!
+                  s->stream s-empty? s-first s-rest
+                  s-copy s-copy! s-clear s-clear!
+                  s-map s-for-each s->list
+                  s-equal? s=? s-subset? s-proper-subset?
+                  s-union s-intersect s-subtract s-symm-diff
+                  s-union! s-intersect! s-subtract! s-symm-diff!]
+    (implement-ht-set name desc
+                      make-ht wrap-k unwrap-k
+                      s? s-ht update-s void
+                      alt1-s? alt1-s-ht alt2-s? alt2-s-ht))
+
+  (values s-custom-write s-hash-code s-hash-code
+          s-count s-member? s-add s-remove
+          s->stream s-empty? s-first s-rest
+          s-copy s-clear
+          s-map s-for-each s->list
+          s-equal? s=? s-subset? s-proper-subset?
+          s-union s-intersect s-subtract s-symm-diff))
+
+(define (implement-mutable-ht-set name desc
+                                  make-ht wrap-k unwrap-k
+                                  s? s-ht update-s set-s-ht!
+                                  alt1-s? alt1-s-ht alt2-s? alt2-s-ht)
+
+  (define-values [s-custom-write s-hash-code s-hash-code
+                  s-count s-member? s-add s-remove s-add! s-remove!
+                  s->stream s-empty? s-first s-rest
+                  s-copy s-copy! s-clear s-clear!
+                  s-map s-for-each s->list
+                  s-equal? s=? s-subset? s-proper-subset?
+                  s-union s-intersect s-subtract s-symm-diff
+                  s-union! s-intersect! s-subtract! s-symm-diff!]
+    (implement-ht-set name desc
+                      make-ht wrap-k unwrap-k
+                      s? s-ht update-s set-s-ht!
+                      alt1-s? alt1-s-ht alt2-s? alt2-s-ht))
+
+  (values s-custom-write s-hash-code s-hash-code
+          s-count s-member? s-add! s-remove!
+          s->stream s-empty? s-first s-rest
+          s-copy! s-clear s-clear!
+          s-map s-for-each s->list
+          s-equal? s=? s-subset? s-proper-subset?
+          s-union s-intersect s-subtract s-symm-diff))
+
 (define-syntax (declare-ht-sets stx)
   (syntax-case stx ()
-    [(_ declare-struct base-name
+    [(_ declare-struct
+        base-name
         make-immutable-ht
         make-mutable-ht
         make-weak-ht
@@ -898,64 +1088,6 @@
     custom-set
     mutable-custom-set
     weak-custom-set))
-
-(define (ht-set-custom-write s port mode)
-  (define ht (ht-set-table s))
-  (define recur-print (cond
-                       [(not mode) display]
-                       [(integer? mode) (lambda (p port) (print p port mode))]
-                       [else write]))
-  (define (print-prefix port)
-    (cond
-      [(equal? 0 mode)
-       (write-string "(" port)
-       (print-prefix-id port)]
-      [else
-       (write-string "#<" port)
-       (print-prefix-id port)
-       (write-string ":" port)]))
-  (define (print-prefix-id port)
-    (cond
-      [(immutable? ht) (write-string "set" port)]
-      [else (write-string "mutable-set" port)])
-    (cond
-      [(hash-equal? ht) (void)]
-      [(hash-eqv? ht) (write-string "eqv" port)]
-      [(hash-eq? ht) (write-string "eq" port)]))
-  (define (print-suffix port)
-    (if (equal? 0 mode)
-        (write-string ")" port)
-        (write-string ">" port)))
-  (define (print-one-line port)
-    (print-prefix port)
-    (for ([e (in-hash-keys ht)]) 
-      (write-string " " port)
-      (recur-print e port))
-    (print-suffix port))
-  (define (print-multi-line port)
-    (let-values ([(line col pos) (port-next-location port)])
-      (print-prefix port)
-      (for ([e (in-hash-keys ht)]) 
-        (pretty-print-newline port (pretty-print-columns))
-        (write-string (make-string (add1 col) #\space) port)
-        (recur-print e port))
-      (print-suffix port)))
-  (cond
-   [(and (pretty-printing)
-         (integer? (pretty-print-columns)))
-    ((let/ec esc
-       (letrec ([tport (make-tentative-pretty-print-output-port
-                        port
-                        (- (pretty-print-columns) 1)
-                        (lambda () 
-                          (esc
-                           (lambda ()
-                             (tentative-pretty-print-port-cancel tport)
-                             (print-multi-line port)))))])
-         (print-one-line tport)
-         (tentative-pretty-print-port-transfer tport port))
-       void))]
-   [else (print-one-line port)]))
 
 (define (ht-set-count set)
   (hash-count (ht-set-table set)))
