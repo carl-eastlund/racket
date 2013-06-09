@@ -698,7 +698,7 @@
     (define pos (hash-iterate-first ht))
     (unless pos
       (raise-argument-error 's-first "(and/c set? (not/c set-empty?))" s))
-    (hash-iterate-key ht pos))
+    ((get-unwrap s) (hash-iterate-key ht pos)))
   (define (s-rest s)
     (dprintf "(set-rest ~v)\n" s)
     (define ht (s-ht s))
