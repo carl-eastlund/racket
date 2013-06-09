@@ -77,8 +77,8 @@
   weak-seteqv list->weak-seteqv for/weak-seteqv for*/weak-seteqv
 
   make-custom-set
-  make-custom-mutable-set
-  make-custom-weak-set)
+  make-mutable-custom-set
+  make-weak-custom-set)
 
 (define (supported? set sym)
   (cond
@@ -605,7 +605,7 @@
                           alt1-s? alt1-s-ht alt2-s? alt2-s-ht)
 
   (define (s-custom-write s port mode)
-    (define ht (ht-set-table s))
+    (define ht (s-ht s))
     (define unwrap (get-unwrap s))
     (define print-elem
       (cond
@@ -618,7 +618,7 @@
          (write-string "(" port)
          (display name port)]
         [else
-         (write-wtring "#<" port)
+         (write-string "#<" port)
          (display name port)
          (write-string ":" port)]))
     (define (print-suffix port)
@@ -666,14 +666,22 @@
   (define (s-add s e) (update-s s (hash-set (s-ht s) ((get-wrap s) e) #t)))
   (define (s-add! s e) (hash-set! (s-ht s) ((get-wrap s) e) #t))
   (define (s-remove s e) (update-s s (hash-remove (s-ht s) ((get-wrap s) e))))
-  (define (s-remove! s e) (hash-remove! (s-ht w) ((get-wrap s) e)))
+  (define (s-remove! s e) (hash-remove! (s-ht s) ((get-wrap s) e)))
   (define (s->stream s)
     (stream-map (get-unwrap s) (sequence->stream (in-hash-keys (s-ht s)))))
   (define (s-empty? s) (zero? (hash-count (s-ht s))))
-  (define (s-first s) ((get-unwrap s) (hash-first-key (s-ht s))))
+  (define (s-first s)
+    (define ht (s-ht s))
+    (define pos (hash-iterate-first ht))
+    (unless pos
+      (raise-argument-error 's-first "(and/c set? (not/c set-empty?))" s))
+    (hash-iterate-key ht pos))
   (define (s-rest s)
     (define ht (s-ht s))
-    (update-s s (hash-remove ht (hash-first-key ht))))
+    (define pos (hash-iterate-first ht))
+    (unless pos
+      (raise-argument-error 's-rest "(and/c set? (not/c set-empty?))" s))
+    (update-s s (hash-remove ht (hash-iterate-key ht pos))))
   (define (s-copy s) s)
   (define (s-copy! s) (update-s s (hash-copy (s-ht s))))
   (define (s-clear s) (update-s s (make-ht)))
@@ -686,7 +694,7 @@
     (define unwrap (get-unwrap s))
     (for/fold ([lst '()]) ([k (in-hash-keys (s-ht s))])
       (cons (f (unwrap k)) lst)))
-  (define (s->list s f)
+  (define (s->list s)
     ;; As with s-map above, we don't have to preserve element order.
     (define unwrap (get-unwrap s))
     (for/fold ([lst '()]) ([k (in-hash-keys (s-ht s))])
@@ -695,14 +703,13 @@
     (define unwrap (get-unwrap s))
     (for ([k (in-hash-keys (s-ht s))])
       (f (unwrap k))))
-  (define (s-equal? s1 s2)
+
+  (define (s-equal? s1 s2 [rec equal?])
     (cond
       [(s? s2)
        (define ht1 (s-ht s1))
        (define ht2 (s-ht s2))
-       (and (= (hash-count ht1) (hash-count ht2))
-            (for/and ([k (in-hash-keys ht1)])
-              (hash-ref ht2 k #f)))]
+       (rec ht1 ht2)]
       [else #f]))
   (define (s=? s1 s2)
     (define ht1 (s-ht s1))
@@ -821,7 +828,7 @@
                                     s? s-ht update-s
                                     alt1-s? alt1-s-ht alt2-s? alt2-s-ht)
 
-  (define-values [s-custom-write s-hash-code s-hash-code
+  (define-values [s-custom-write s-hash-code1 s-hash-code2
                   s-count s-member? s-add s-remove s-add! s-remove!
                   s->stream s-empty? s-first s-rest
                   s-copy s-copy! s-clear s-clear!
@@ -834,7 +841,7 @@
                       s? s-ht update-s void
                       alt1-s? alt1-s-ht alt2-s? alt2-s-ht))
 
-  (values s-custom-write s-hash-code s-hash-code
+  (values s-custom-write s-hash-code1 s-hash-code2
           s-count s-member? s-add s-remove
           s->stream s-empty? s-first s-rest
           s-copy s-clear
@@ -847,7 +854,7 @@
                                   s? s-ht update-s set-s-ht!
                                   alt1-s? alt1-s-ht alt2-s? alt2-s-ht)
 
-  (define-values [s-custom-write s-hash-code s-hash-code
+  (define-values [s-custom-write s-hash-code1 s-hash-code2
                   s-count s-member? s-add s-remove s-add! s-remove!
                   s->stream s-empty? s-first s-rest
                   s-copy s-copy! s-clear s-clear!
@@ -860,7 +867,7 @@
                       s? s-ht update-s set-s-ht!
                       alt1-s? alt1-s-ht alt2-s? alt2-s-ht))
 
-  (values s-custom-write s-hash-code s-hash-code
+  (values s-custom-write s-hash-code1 s-hash-code2
           s-count s-member? s-add! s-remove!
           s->stream s-empty? s-first s-rest
           s-copy! s-clear s-clear!
@@ -891,9 +898,9 @@
        (define/with-syntax is-struct (derived "immutable-ht-~a"))
        (define/with-syntax ms-struct (derived "mutable-ht-~a"))
        (define/with-syntax ws-struct (derived "weak-ht-~a"))
-       (define/with-syntax is? (derived "ht-immutable-~a?"))
-       (define/with-syntax ms? (derived "ht-mutable-~a?"))
-       (define/with-syntax ws? (derived "ht-weak-~a?"))
+       (define/with-syntax is? (derived "immutable-ht-~a?"))
+       (define/with-syntax ms? (derived "mutable-ht-~a?"))
+       (define/with-syntax ws? (derived "weak-ht-~a?"))
        (define/with-syntax make-is (derived "make-immutable-ht-~a"))
        (define/with-syntax make-ms (derived "make-mutable-ht-~a"))
        (define/with-syntax make-ws (derived "make-weak-ht-~a"))
@@ -922,7 +929,7 @@
                            is-map is-for-each is->list
                            is-equal? is=? is-subset? is-proper-subset?
                            is-union is-intersect is-subtract is-symm-diff]
-             (implement-immutable-sets 'is-name 'desc-str
+             (implement-immutable-ht-set 'is-name 'desc-str
                make-immutable-ht
                (lambda (s) (make-wrap (is-field s) ...))
                (lambda (s) (make-unwrap (is-field s) ...))
@@ -946,7 +953,7 @@
                            ms-map ms-for-each ms->list
                            ms-equal? ms=? ms-subset? ms-proper-subset?
                            ms-union! ms-intersect! ms-subtract! ms-symm-diff!]
-             (implement-mutable-sets 'ms-name 'desc-str
+             (implement-mutable-ht-set 'ms-name 'desc-str
                make-mutable-ht
                (lambda (s) (make-wrap (ms-field s) ...))
                (lambda (s) (make-unwrap (ms-field s) ...))
@@ -959,7 +966,7 @@
                       (equal? (ms-field s1) (is-field s2))
                       ...))
                (lambda (s) (is-table s))
-               (lambda (s2)
+               (lambda (s1 s2)
                  (and (ws? s2)
                       (equal? (ms-field s1) (ws-field s2))
                       ...))
@@ -969,9 +976,9 @@
                            ws-clear! ws-clear ws-copy
                            ws->stream ws-empty? ws-first ws-rest
                            ws-map ws-for-each ws->list
-                           ws-subset? ws-proper-subset?
+                           ws-equal? ws=? ws-subset? ws-proper-subset?
                            ws-union! ws-intersect! ws-subtract! ws-symm-diff!]
-             (implement-mutable-sets 'ws-name 'desc-str
+             (implement-mutable-ht-set 'ws-name 'desc-str
                make-weak-ht
                (lambda (s) (make-wrap (ws-field s) ...))
                (lambda (s) (make-unwrap (ws-field s) ...))
@@ -995,7 +1002,7 @@
              #:constructor-name make-is
              #:property prop:custom-print-quotable 'never
              #:property prop:custom-write is-custom-write
-             #:property prop:equal+hash (list is=? is-code1 is-code2)
+             #:property prop:equal+hash (list is-equal? is-code1 is-code2)
              #:property prop:sequence is->stream
              #:property prop:stream (vector is-empty? is-first is-rest)
              #:methods gen:set
@@ -1026,7 +1033,7 @@
              #:constructor-name make-ms
              #:property prop:custom-print-quotable 'never
              #:property prop:custom-write ms-custom-write
-             #:property prop:equal+hash (list ms=? ms-code1 ms-code2)
+             #:property prop:equal+hash (list ms-equal? ms-code1 ms-code2)
              #:property prop:sequence ms->stream
              #:property prop:stream (vector ms-empty? ms-first ms-rest)
              #:methods gen:set
@@ -1058,7 +1065,7 @@
              #:constructor-name make-ws
              #:property prop:custom-print-quotable 'never
              #:property prop:custom-write ws-custom-write
-             #:property prop:equal+hash (list ws=? ws-code1 ws-code2)
+             #:property prop:equal+hash (list ws-equal? ws-code1 ws-code2)
              #:property prop:sequence ws->stream
              #:property prop:stream (vector ws-empty? ws-first ws-rest)
              #:methods gen:set
@@ -1087,21 +1094,21 @@
 (define (default-wrap) values)
 (define (default-unwrap) values)
 
-(declare-sets serializable-struct set [] "(and/c set? set-equal?)"
+(declare-ht-sets serializable-struct set [] "(and/c set? set-equal?)"
   make-immutable-hash
   make-hash
   make-weak-hash
   default-wrap
   default-unwrap)
 
-(declare-sets serializable-struct seteqv [] "(and/c set? set-eqv?)"
+(declare-ht-sets serializable-struct seteqv [] "(and/c set? set-eqv?)"
   make-immutable-hasheqv
   make-hasheqv
   make-weak-hasheqv
   default-wrap
   default-unwrap)
 
-(declare-sets serializable-struct seteq [] "(and/c set? set-eq?)"
+(declare-ht-sets serializable-struct seteq [] "(and/c set? set-eq?)"
   make-immutable-hasheq
   make-hasheq
   make-weak-hasheq
@@ -1113,7 +1120,7 @@
 (define (custom-wrap wrapper) wrapper)
 (define (custom-unwrap wrapper) custom-wrapper-contents)
 
-(declare-sets struct custom-set [wrapper] "a custom set"
+(declare-ht-sets struct custom-set [wrapper] "a custom set"
   make-immutable-hash
   make-hash
   make-weak-hash
@@ -1193,17 +1200,17 @@
                 (hash-set ht (let () . post-body) #t)))))]))))
 
 (define-for for/fold/derived for/set
-            make-immutable-hash make-immutable-set)
+            make-immutable-hash make-immutable-ht-set)
 (define-for for*/fold/derived for*/set
-            make-immutable-hash make-immutable-set)
+            make-immutable-hash make-immutable-ht-set)
 (define-for for/fold/derived for/seteq
-            make-immutable-hasheq make-immutable-seteq)
+            make-immutable-hasheq make-immutable-ht-seteq)
 (define-for for*/fold/derived for*/seteq
-            make-immutable-hasheq make-immutable-seteq)
+            make-immutable-hasheq make-immutable-ht-seteq)
 (define-for for/fold/derived for/seteqv
-            make-immutable-hasheqv make-immutable-seteqv)
+            make-immutable-hasheqv make-immutable-ht-seteqv)
 (define-for for*/fold/derived for*/seteqv
-            make-immutable-hasheqv make-immutable-seteqv)
+            make-immutable-hasheqv make-immutable-ht-seteqv)
 
 (define-syntax-rule (define-for-mutable for/fold/derived for/set
                                         make-hash make-set)
@@ -1222,34 +1229,34 @@
                (make-set ht))))]))))
 
 (define-for-mutable for/fold/derived for/mutable-set
-                    make-hash make-mutable-set)
+                    make-hash make-mutable-ht-set)
 (define-for-mutable for*/fold/derived for*/mutable-set
-                    make-hash make-mutable-set)
+                    make-hash make-mutable-ht-set)
 (define-for-mutable for/fold/derived for/mutable-seteq
-                    make-hasheq make-mutable-seteq)
+                    make-hasheq make-mutable-ht-seteq)
 (define-for-mutable for*/fold/derived for*/mutable-seteq
-                    make-hasheq make-mutable-seteq)
+                    make-hasheq make-mutable-ht-seteq)
 (define-for-mutable for/fold/derived for/mutable-seteqv
-                    make-hasheqv make-mutable-seteqv)
+                    make-hasheqv make-mutable-ht-seteqv)
 (define-for-mutable for*/fold/derived for*/mutable-seteqv
-                    make-hasheqv make-mutable-seteqv)
+                    make-hasheqv make-mutable-ht-seteqv)
 
 (define-for-mutable for/fold/derived for/weak-set
-                    make-weak-hash make-weak-set)
+                    make-weak-hash make-weak-ht-set)
 (define-for-mutable for*/fold/derived for*/weak-set
-                    make-weak-hash make-weak-set)
+                    make-weak-hash make-weak-ht-set)
 (define-for-mutable for/fold/derived for/weak-seteq
-                    make-weak-hasheq make-weak-seteq)
+                    make-weak-hasheq make-weak-ht-seteq)
 (define-for-mutable for*/fold/derived for*/weak-seteq
-                    make-weak-hasheq make-weak-seteq)
+                    make-weak-hasheq make-weak-ht-seteq)
 (define-for-mutable for/fold/derived for/weak-seteqv
-                    make-weak-hasheqv make-weak-seteqv)
+                    make-weak-hasheqv make-weak-ht-seteqv)
 (define-for-mutable for*/fold/derived for*/weak-seteqv
-                    make-weak-hasheqv make-weak-seteqv)
+                    make-weak-hasheqv make-weak-ht-seteqv)
 
 (define (set-equal? x)
   (unless (set? x) (raise-argument-error 'set-equal? "set?" 0 x))
-  (ht-set? s))
+  (ht-set? x))
 (define (set-eqv? x)
   (unless (set? x) (raise-argument-error 'set-eqv? "set?" 0 x))
   (ht-seteqv? x))
