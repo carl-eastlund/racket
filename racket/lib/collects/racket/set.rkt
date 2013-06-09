@@ -706,6 +706,10 @@
     (unless pos
       (raise-argument-error 's-rest "(and/c set? (not/c set-empty?))" s))
     (update-s s (hash-remove ht (hash-iterate-key ht pos))))
+  (define (s-rest! s)
+    (dprintf "(set-rest ~v)\n" s)
+    (stream-map (get-unwrap s)
+                (stream-rest (sequence->stream (in-hash-keys (s-ht s))))))
   ;; There is no separate set-copy and set-copy!, just set-copy.
   ;; The two copies here implement set-copy for immutable and mutable sets.
   ;; Immutable sets don't need to do anything in s-copy.
@@ -753,8 +757,9 @@
   (define (s=? s1 s2)
     (dprintf "(set=? ~v ~v)\n" s1 s2)
     (define ht1 (s-ht s1))
-    (define ht2 (alt-s-ht 'set=? s1 s2))
-    (and (= (hash-count ht1) (hash-count ht2))
+    (define ht2 (alt-s-ht #f s1 s2))
+    (and ht2
+         (= (hash-count ht1) (hash-count ht2))
          (for/and ([k (in-hash-keys ht1)])
            (hash-ref ht2 k #f))))
   (define (s-subset? s1 s2)
@@ -862,11 +867,12 @@
       [(s? s2) (s-ht s2)]
       [(alt1-s? s1 s2) (alt1-s-ht s2)]
       [(alt2-s? s1 s2) (alt2-s-ht s2)]
-      [else (raise-argument-error op desc 1 s1 s2)]))
+      [op (raise-argument-error op desc 1 s1 s2)]
+      [else #f]))
 
   (values s-custom-write s-hash-code s-hash-code
           s-count s-member? s-add s-remove s-add! s-remove!
-          s->stream s-empty? s-first s-rest
+          s->stream s-empty? s-first s-rest s-rest!
           s-copy s-copy! s-clear s-clear!
           s-map s-for-each s->list
           s-equal? s=? s-subset? s-proper-subset?
@@ -880,7 +886,7 @@
 
   (define-values [s-custom-write s-hash-code1 s-hash-code2
                   s-count s-member? s-add s-remove s-add! s-remove!
-                  s->stream s-empty? s-first s-rest
+                  s->stream s-empty? s-first s-rest s-rest!
                   s-copy s-copy! s-clear s-clear!
                   s-map s-for-each s->list
                   s-equal? s=? s-subset? s-proper-subset?
@@ -906,7 +912,7 @@
 
   (define-values [s-custom-write s-hash-code1 s-hash-code2
                   s-count s-member? s-add s-remove s-add! s-remove!
-                  s->stream s-empty? s-first s-rest
+                  s->stream s-empty? s-first s-rest s-rest!
                   s-copy s-copy! s-clear s-clear!
                   s-map s-for-each s->list
                   s-equal? s=? s-subset? s-proper-subset?
@@ -919,11 +925,11 @@
 
   (values s-custom-write s-hash-code1 s-hash-code2
           s-count s-member? s-add! s-remove!
-          s->stream s-empty? s-first s-rest
+          s->stream s-empty? s-first s-rest!
           s-copy! s-clear s-clear!
           s-map s-for-each s->list
           s-equal? s=? s-subset? s-proper-subset?
-          s-union s-intersect s-subtract s-symm-diff))
+          s-union! s-intersect! s-subtract! s-symm-diff!))
 
 (define-syntax (declare-ht-sets stx)
   (syntax-case stx ()
@@ -1010,7 +1016,7 @@
                (lambda (s) (ms? s))
                (lambda (s) (ms-table s))
                (lambda (s x) (make-ms x (ms-field s) ...))
-               (lambda (s) (set-ms-table! s))
+               (lambda (s ht) (set-ms-table! s ht))
                (lambda (s1 s2)
                  (and (is? s2)
                       (equal? (ms-field s1) (is-field s2))
@@ -1035,7 +1041,7 @@
                (lambda (s) (ws? s))
                (lambda (s) (ws-table s))
                (lambda (s x) (make-ws x (ws-field s) ...))
-               (lambda (s) (set-ws-table! s))
+               (lambda (s ht) (set-ws-table! s ht))
                (lambda (s1 s2)
                  (and (is? s2)
                       (eq? (ws-field s1) (is-field s2))
@@ -1065,7 +1071,6 @@
               (define set-copy is-copy)
               (define set-empty? is-empty?)
               (define set-first is-first)
-              (define set-rest is-rest)
               (define set-map is-map)
               (define set-for-each is-for-each)
               (define set->list is->list)
@@ -1097,7 +1102,6 @@
               (define set->stream ms->stream)
               (define set-empty? ms-empty?)
               (define set-first ms-first)
-              (define set-rest ms-rest)
               (define set-map ms-map)
               (define set-for-each ms-for-each)
               (define set->list ms->list)
@@ -1129,7 +1133,6 @@
               (define set->stream ws->stream)
               (define set-empty? ws-empty?)
               (define set-first ws-first)
-              (define set-rest ws-rest)
               (define set-map ws-map)
               (define set-for-each ws-for-each)
               (define set->list ws->list)
