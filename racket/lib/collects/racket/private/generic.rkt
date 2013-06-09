@@ -76,7 +76,7 @@
                [(prop:pred self-name) (accessor-name self-name)]
                [(default-pred-name self-name) default-impl-name]
                ...
-               [else (raise-syntax-error who 'contract-name self-name)]))
+               [else (raise-argument-error who 'contract-str self-name)]))
            (define-generic-support
              #:define-supported supported-name
              #:given-self self-name
