@@ -34,6 +34,7 @@
 
 (define-syntax gen:stream
   (make-generic-info #'prop:stream
+                     '()
                      (list #'stream-empty?
                            #'stream-first
                            #'stream-rest)))

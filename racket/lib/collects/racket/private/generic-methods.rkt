@@ -4,9 +4,15 @@
                          "stx.rkt" "stxcase-scheme.rkt")
              "define.rkt" "../stxparam.rkt")
 
-  (#%provide define/generic generic-property generic-method-table
-             (for-syntax generic-info? make-generic-info
-                         generic-info-property generic-info-methods))
+  (#%provide define/generic
+             generic-property
+             generic-method-table
+             ensure-unimplemented
+             (for-syntax generic-info?
+                         make-generic-info
+                         generic-info-property
+                         generic-info-supers
+                         generic-info-methods))
 
   (begin-for-syntax
 
@@ -15,11 +21,14 @@
                     generic-info?
                     generic-info-get
                     generic-info-set!)
-      (make-struct-type 'generic-info #f 2 0))
+      (make-struct-type 'generic-info #f 3 0))
 
-    (define-values (generic-info-property generic-info-methods)
+    (define-values (generic-info-property
+                    generic-info-supers
+                    generic-info-methods)
       (values (make-struct-field-accessor generic-info-get 0 'property)
-              (make-struct-field-accessor generic-info-get 1 'methods)))
+              (make-struct-field-accessor generic-info-get 1 'supers)
+              (make-struct-field-accessor generic-info-get 2 'methods)))
 
     (define (check-identifier! name ctx stx)
       (unless (identifier? stx)
@@ -82,6 +91,24 @@
                    ()
                  def ...
                  (vector (implementation method) ...))))))]))
+
+  (define-syntax (ensure-unimplemented stx)
+    (syntax-case stx ()
+      [(_ message name ...)
+       (let ([msg (syntax-e #'message)])
+         (unless (string? msg)
+           (raise-syntax-error #f "expected a string" stx #'message))
+         (let loop ([names (syntax->list #'(name ...))])
+           (cond
+             [(null? names) #'(begin)]
+             [else
+              (define name (car names))
+              (unless (identifier? name)
+                (raise-syntax-error #f "expected an identifier" stx name))
+              (define value (syntax-local-value name (lambda () #f)))
+              (unless (unimplemented? value)
+                (raise-syntax-error #f msg stx name))
+              (loop (cdr names))])))]))
 
   (define-syntax (define/generic stx)
     (define gen-id (syntax-parameter-value #'generic-method-context))

@@ -3,7 +3,8 @@
          (for-syntax racket/base
                      racket/local
                      racket/syntax
-                     syntax/stx)
+                     syntax/stx
+                     syntax/boundmap)
          "generic-methods.rkt"
          (only-in racket/function arity-includes?))
 
@@ -18,7 +19,57 @@
 
   (define (check-identifier! stx)
     (unless (identifier? stx)
-      (wrong-syntax stx "expected an identifier"))))
+      (wrong-syntax stx "expected an identifier")))
+
+  (define (free-id-table) (make-free-identifier-mapping))
+  (define (free-id-ref table id default)
+    (free-identifier-mapping-get table id (lambda () default)))
+  (define (free-id-set! table id value)
+    (free-identifier-mapping-put! table id value))
+
+  (define (parse-extensions meths exts0)
+    (define ext-table (free-id-table))
+    (define infos
+      (let loop ([exts exts0] [tail '()])
+        (cond
+          [(null? exts) tail]
+          [(free-id-ref ext-table (car exts) #f)
+           (loop (cdr exts) tail)]
+          [else
+           (define ext (car exts))
+           (define info
+             (and (identifier? ext)
+                  (syntax-local-value ext (lambda () #f))))
+           (unless (generic-info? info)
+             (wrong-syntax ext "expected a generics group name"))
+           (free-id-set! ext-table ext #t)
+           (cons info
+                 (loop (generic-info-supers info)
+                       (loop (cdr exts) tail)))])))
+    (define super-table (free-id-table))
+    (define-values (props super-lists)
+      (for/lists (props super-lists) ([info (in-list infos)])
+        (values (generic-info-property info)
+                (map syntax-local-introduce
+                     (generic-info-methods info)))))
+    (define count (length meths))
+    (define supers
+      (for*/list ([supers (in-list super-lists)]
+                  [super (in-list supers)]
+                  #:unless (free-id-ref super-table super #f))
+        (define index count)
+        (set! count (add1 index))
+        (free-id-set! super-table super index)
+        super))
+    (for ([meth (in-list meths)])
+      (when (free-id-ref super-table meth #f)
+        (wrong-syntax meth
+                      "cannot redefine method from extended generics group")))
+    (define super-indices
+      (for/list ([supers (in-list super-lists)])
+        (for/list ([super (in-list supers)])
+          (free-id-ref super-table super #f))))
+    (values supers props super-indices)))
 
 (define-syntax (define-primitive-generics/derived stx)
   (syntax-case stx ()
@@ -29,6 +80,7 @@
         #:define-supported supported-name
         #:define-methods [(method-name . method-signature) ...]
         #:given-self self-name
+        #:given-extensions [extension-name ...]
         #:given-defaults ([default-pred default-defn ...] ...)
         #:given-fallbacks [fallback-defn ...]
         #:given-source original)
@@ -39,10 +91,21 @@
        (check-identifier! #'accessor-name)
        (check-identifier! #'supported-name)
        (check-identifier! #'self-name)
-       (for-each check-identifier! (syntax->list #'(method-name ...)))
-       (define n (length (syntax->list #'(method-name ...))))
+       (define methods (syntax->list #'(method-name ...)))
+       (define extensions (syntax->list #'(extension-name ...)))
+       (for-each check-identifier! methods)
+       (for-each check-identifier! extensions)
+       (define-values {supers super-props super-indices}
+         (parse-extensions methods extensions))
+       (define n-methods (length methods))
+       (define n-supers (length supers))
+       (define n (+ n-methods n-supers))
+       (define method-indices (for/list ([i (in-range n-methods)]) i))
        (define/with-syntax size n)
-       (define/with-syntax (index ...) (for/list ([i (in-range n)]) i))
+       (define/with-syntax [super-name ...] supers)
+       (define/with-syntax [method-index ...] method-indices)
+       (define/with-syntax [super-prop ...] super-props)
+       (define/with-syntax [[super-index ...] ...] super-indices)
        (define/with-syntax contract-str
          (format "~s" (syntax-e #'predicate-name)))
        (define/with-syntax (default-pred-name ...)
@@ -52,7 +115,9 @@
        #'(begin
            (define-syntax generic-name
              (make-generic-info (quote-syntax property-name)
-                                (list (quote-syntax method-name) ...)))
+                                (list (quote-syntax extension-name) ...)
+                                (list (quote-syntax method-name) ...
+                                      (quote-syntax super-name) ...)))
            (define (prop:guard x info)
              (unless (and (vector? x) (= (vector-length x) 'size))
                (raise-argument-error 'generic-name
@@ -63,12 +128,17 @@
                #:given-generic generic-name
                #:given-method method-name
                #:given-signature method-signature
-               #:given-impl (vector-ref x 'index)
+               #:given-impl (vector-ref x 'method-index)
                #:given-source original)
              ...
              x)
            (define-values (property-name prop:pred accessor-name)
-             (make-struct-type-property 'generic-name prop:guard '() #t))
+             (make-struct-type-property 'generic-name prop:guard
+               (list (cons super-prop
+                           (lambda (x)
+                             (vector (vector-ref x 'super-index) ...)))
+                     ...)
+               #t))
            (define (predicate-name self-name)
              (or (prop:pred self-name) (default-pred-name self-name) ...))
            (define (table-name self-name [who 'table-name])
@@ -88,14 +158,21 @@
              #:given-signature method-signature
              #:given-self self-name
              #:given-proc
-             (or (vector-ref (table-name self-name 'method-name) 'index)
-                 (vector-ref fallback-name 'index))
+             (or (vector-ref (table-name self-name 'method-name) 'method-index)
+                 (vector-ref fallback-name 'method-index))
              #:given-source original)
            ...
            (define-values (default-pred-name ...)
              (values default-pred ...))
            (define fallback-name
-             (generic-method-table generic-name fallback-defn ...))
+             (generic-method-table
+               generic-name
+               fallback-defn
+               ...
+               (ensure-unimplemented
+                 "cannot define fallbacks for inherited methods"
+                 super-name
+                 ...)))
            (define default-impl-name
              (generic-method-table generic-name default-defn ...))
            ...))]))
@@ -109,6 +186,7 @@
         #:define-supported supported-name
         #:define-methods [(method-name . signature-name) ...]
         #:given-self self-name
+        #:given-extensions [ext-name ...]
         #:given-defaults ([default-pred default-defn ...] ...)
         #:given-fallbacks [fallback-defn ...])
      #`(define-primitive-generics/derived
@@ -119,6 +197,7 @@
          #:define-supported supported-name
          #:define-methods [(method-name . signature-name) ...]
          #:given-self self-name
+         #:given-extensions [ext-name ...]
          #:given-defaults ([default-pred default-defn ...] ...)
          #:given-fallbacks [fallback-defn ...]
          #:given-source #,stx)]))
@@ -251,7 +330,7 @@
       (define/with-syntax x (generate-temporary 'x))
       (if tail
           (with-syntax ([rest tail])
-            #'(apply f kw ... ... arg ... tail))
+            #'(apply f kw ... ... arg ... rest))
           #'(f kw ... ... arg ...)))
 
     (define-values (req req-kw opt opt-kw rest)

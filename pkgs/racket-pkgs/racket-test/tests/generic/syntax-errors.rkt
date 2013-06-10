@@ -38,4 +38,25 @@
    (stream-rest stream)
    (stream-empty? stream)
    #:defaults
-   ([])))
+   ([]))
+
+  (begin
+    (define-generics stream
+      (stream-first stream)
+      (stream-rest stream)
+      (stream-empty? stream))
+    (define-generics more-stream
+      #:extend gen:stream
+      (stream-first more-stream)))
+
+  (begin
+    (define-generics stream
+      (stream-first stream)
+      (stream-rest stream)
+      (stream-empty? stream))
+    (define-generics more-stream
+      #:extend gen:stream
+      #:fallbacks [(define (stream-first x) x)]))
+
+  (define-generics stream
+    #:extend not-a-generic-at-all))

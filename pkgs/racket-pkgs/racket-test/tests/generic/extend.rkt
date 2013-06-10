@@ -2,6 +2,8 @@
 
 (require racket/generic racket/stream rackunit)
 
+;; Testing inheritance from a "built-in" generic:
+
 (define-generics reversible-stream
   #:extend gen:stream
   (stream-reverse reversible-stream))
@@ -39,31 +41,41 @@
 (check-equal? (stream->list (stream-reverse (computed-stream 5 number->string)))
               (list "1" "2" "3" "4" "5"))
 
+;; Testing multiple-inheritance, diamond dependencies, and define/generic:
+
+(define-generics sizeable
+  (size-of sizeable))
+
 (define-generics listable
+  #:extend gen:sizeable
   (to-list listable))
 
 (define-generics vectorable
+  #:extend gen:sizeable
   (to-vector vectorable))
 
 (define-generics streamable
-  #:extend [listable vectorable]
+  #:extend [gen:listable gen:vectorable]
   (to-stream streamable . others))
 
 (struct listish [contents]
   #:methods gen:listable
-  [(define (to-list x) (listish-contents x))])
+  [(define (to-list x) (listish-contents x))
+   (define (size-of x) (length (to-list x)))])
 
 (struct vectorish [contents]
   #:methods gen:vectorable
-  [(define (to-vector x) (vectorish-contents x))])
+  [(define (to-vector x) (vectorish-contents x))
+   (define (size-of x) (vector-length (to-vector x)))])
 
 (struct streamish [contents]
   #:methods gen:streamable
-  [(define (to-list x) (stream->list (streamish-contents x)))
-   (define (to-vector x) (list->vector (to-list x)))
-   (define/generic 2lst to-list)
+  [(define/generic 2lst to-list)
    (define/generic 2vec to-vector)
    (define/generic 2str to-stream)
+   (define (size-of x) (stream-length (streamish-contents x)))
+   (define (to-list x) (stream->list (streamish-contents x)))
+   (define (to-vector x) (list->vector (to-list x)))
    (define (to-stream x . others)
      (apply stream-append
             (streamish-contents x)
@@ -73,9 +85,9 @@
                 [(listable? other) (2lst other)]
                 [(vectorable? other) (2vec other)]))))])
 
-(check-equal? (streamable? (streamish (stream 1 2 3))))
-(check-equal? (vectorable? (streamish (stream 1 2 3))))
-(check-equal? (listable? (streamish (stream 1 2 3))))
+(check-equal? (streamable? (streamish (stream 1 2 3))) #true)
+(check-equal? (vectorable? (streamish (stream 1 2 3))) #true)
+(check-equal? (listable? (streamish (stream 1 2 3))) #true)
 (check-equal? (to-list (streamish (stream 1 2 3))) (list 1 2 3))
 (check-equal? (to-vector (streamish (stream 1 2 3))) (vector 1 2 3))
 (check-equal? (stream->list (to-stream (streamish (stream 1 2))

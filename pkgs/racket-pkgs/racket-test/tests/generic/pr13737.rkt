@@ -26,6 +26,7 @@
   #:define-supported dummy
   #:define-methods [(meth foo #:kw kw)]
   #:given-self foo
+  #:given-extensions ()
   #:given-defaults ([number? (define (meth foo #:kw kw) kw)])
   #:given-fallbacks ())
 

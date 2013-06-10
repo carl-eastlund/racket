@@ -15,40 +15,50 @@
 
 (begin-for-syntax
 
-  (define (parse stx table defaults fallbacks methods)
+  (define (parse stx table defaults fallbacks methods exts)
     (syntax-case stx ()
       [(#:defined-table name . args)
        (identifier? #'name)
        (if table
            (wrong-syntax (stx-car stx)
                          "duplicate #:defined-table specification")
-           (parse #'args #'name defaults fallbacks methods))]
+           (parse #'args #'name defaults fallbacks methods exts))]
       [(#:defined-table . other)
        (wrong-syntax (stx-car stx) "invalid #:defined-table specification")]
+      [(#:extend name . args)
+       (identifier? #'name)
+       (parse #'args table defaults fallbacks methods (cons #'name exts))]
+      [(#:extend [name ...] . args)
+       (andmap identifier? (syntax->list #'(name ...)))
+       (parse #'args table defaults fallbacks methods
+              (append (reverse (syntax->list #'[name ...])) exts))]
+      [(#:extend . other)
+       (wrong-syntax (stx-car stx) "invalid #:extend specification")]
       [(#:defaults ([pred defn ...] ...) . args)
        (if defaults
            (wrong-syntax (stx-car stx) "duplicate #:defaults specification")
-           (parse #'args table #'([pred defn ...] ...) fallbacks methods))]
+           (parse #'args table #'([pred defn ...] ...) fallbacks methods exts))]
       [(#:defaults . other)
        (wrong-syntax (stx-car stx) "invalid #:defaults specification")]
       [(#:fallbacks [fallback ...] . args)
        (if fallbacks
            (wrong-syntax (stx-car stx) "duplicate #:fallbacks specification")
-           (parse #'args table defaults #'[fallback ...] methods))]
+           (parse #'args table defaults #'[fallback ...] methods exts))]
       [(#:fallbacks . other)
        (wrong-syntax (stx-car stx) "invalid #:fallbacks specification")]
       [(kw . args)
        (keyword? (syntax-e #'kw))
        (wrong-syntax #'kw "invalid keyword argument")]
-      [((method . sig) . args)
-       (parse #'args table defaults fallbacks (cons #'(method . sig) methods))]
+      [((m . sig) . args)
+       (parse #'args table defaults fallbacks (cons #'(m . sig) methods) exts)]
       [(other . args)
        (wrong-syntax #'other
                      "expected a method identifier with formal arguments")]
       [() (values (or table (generate-temporary 'table))
                   (or defaults '())
                   (or fallbacks '())
-                  (reverse methods))]
+                  (reverse methods)
+                  (reverse exts))]
       [other
        (wrong-syntax #'other
                      "expected a list of arguments with no dotted tail")])))
@@ -59,10 +69,11 @@
      (parameterize ([current-syntax-context stx])
        (unless (identifier? #'name)
          (wrong-syntax #'name "expected an identifier"))
-       (define-values (table defaults fallbacks methods)
-         (parse #'rest #f #f #f '()))
+       (define-values (table defaults fallbacks methods extensions)
+         (parse #'rest #f #f #f '() '()))
        (define/with-syntax [default ...] defaults)
        (define/with-syntax [fallback ...] fallbacks)
+       (define/with-syntax [ext ...] extensions)
        (define/with-syntax [(method . sig) ...] methods)
        (define/with-syntax pred-name (format-id #'name "~a?" #'name))
        (define/with-syntax gen-name (format-id #'name "gen:~a" #'name))
@@ -80,6 +91,7 @@
              #:define-supported table-name
              #:define-methods [(method . sig) ...]
              #:given-self name
+             #:given-extensions [ext ...]
              #:given-defaults [default ...]
              #:given-fallbacks [fallback ...]
              #:given-source original)

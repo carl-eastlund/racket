@@ -38,6 +38,7 @@
 
   (define-syntax gen:equal+hash
     (make-generic-info (quote-syntax prop:gen:equal+hash)
+                       '()
                        (list (quote-syntax equal-proc)
                              (quote-syntax hash-proc)
                              (quote-syntax hash2-proc))))
@@ -67,6 +68,7 @@
 
   (define-syntax gen:custom-write
     (make-generic-info (quote-syntax prop:gen:custom-write)
+                       '()
                        (list (quote-syntax write-proc))))
 
   )

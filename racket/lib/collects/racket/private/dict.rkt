@@ -20,6 +20,7 @@
                     (dict-iterate-key dict pos)
                     (dict-iterate-value dict pos)]
   #:given-self dict
+  #:given-extensions ()
   #:given-defaults ()
   #:given-fallbacks ())
 

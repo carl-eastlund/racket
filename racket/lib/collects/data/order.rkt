@@ -27,6 +27,7 @@
                     (dict-iterate-greatest/<? ordered-dict key)
                     (dict-iterate-greatest/<=? ordered-dict key)]
   #:given-self ordered-dict
+  #:given-extensions ()
   #:given-defaults ()
   #:given-fallbacks ())
 
