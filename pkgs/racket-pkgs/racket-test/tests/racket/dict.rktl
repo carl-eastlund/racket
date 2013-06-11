@@ -156,6 +156,44 @@
   (list s1 s2))
 
 (let ()
+  ;; Weak hash table tests, because we apparently don't have any
+
+  (define x1 (string-copy "one"))
+  (define x2 (string-copy "two"))
+  (define x3 (string-copy "three"))
+  (define x4 (string-copy "four"))
+
+  (define (build-from make . xs)
+    (define table (make))
+    (for ([x (in-list xs)])
+      (hash-set! table x (string->symbol x)))
+    table)
+
+  (define (build . xs) (apply build-from make-weak-hash xs))
+  (define (buildeq . xs) (apply build-from make-weak-hasheq xs))
+  (define (buildeqv . xs) (apply build-from make-weak-hasheqv xs))
+
+  (test #true equal? (build) (build))
+  (test #true equal? (buildeq) (buildeq))
+  (test #true equal? (buildeqv) (buildeqv))
+
+  (test #false equal? (build) (buildeq))
+  (test #false equal? (buildeq) (buildeqv))
+  (test #false equal? (buildeqv) (build))
+
+  (test #true equal? (build x1 x2 x3) (build x1 x2 x3))
+  (test #true equal? (buildeq x1 x2 x3) (buildeq x1 x2 x3))
+  (test #true equal? (buildeqv x1 x2 x3) (buildeqv x1 x2 x3))
+
+  (test #false equal? (build x1 x2) (build x1 x2 x3))
+  (test #false equal? (buildeq x1 x2) (buildeq x1 x2 x3))
+  (test #false equal? (buildeqv x1 x2) (buildeqv x1 x2 x3))
+
+  (test #false equal? (build x1 x2 x3) (buildeq x1 x2 x3))
+  (test #false equal? (buildeq x1 x2 x3) (buildeqv x1 x2 x3))
+  (test #false equal? (buildeqv x1 x2 x3) (build x1 x2 x3)))
+
+(let ()
   (local-require racket/fixnum)
   (define (int=? x y) (fx= x y))
   (define (int-hc x) (fxand x 1))
