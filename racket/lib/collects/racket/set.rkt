@@ -1222,23 +1222,17 @@
   (unless (and (procedure? =?)
                (or (procedure-arity-includes? =? 2)
                    (procedure-arity-includes? =? 3)))
-    (raise-argument-error who
-                          "a procedure of 2 or 3 arguments"
-                          0 =? hc hc2))
+    (raise-argument-error who "a procedure of 2 or 3 arguments" =?))
   (when hc
     (unless (and (procedure? hc)
                  (or (procedure-arity-includes? hc 1)
                      (procedure-arity-includes? hc 2)))
-      (raise-argument-error who
-                            "#f or a procedure of 1 or 2 arguments"
-                            1 =? hc hc2)))
+      (raise-argument-error who "#f or a procedure of 1 or 2 arguments" hc)))
   (when hc2
     (unless (and (procedure? hc2)
                  (or (procedure-arity-includes? hc2 1)
                      (procedure-arity-includes? hc2 2)))
-      (raise-argument-error who
-                            "#f or a procedure of 1 or 2 arguments"
-                            1 =? hc hc2))))
+      (raise-argument-error who "#f or a procedure of 1 or 2 arguments" hc2))))
 
 (define (default-hc x rec) 1)
 
