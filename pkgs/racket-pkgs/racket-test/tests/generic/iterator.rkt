@@ -53,6 +53,7 @@
 
 (define-syntax gen:iterator
   (make-generic-info #'prop:iterator
+                     '()
                      (list #'iterator-first
                            #'iterator-rest
                            #'iterator-continue?)))
