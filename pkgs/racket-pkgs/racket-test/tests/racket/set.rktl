@@ -225,13 +225,14 @@
 
   (define (t mset-A mset-B mset-C set-A set-B set-C)
 
-    (define (t1 ms s subs just-elems just-supers <? f)
+    (define (t1 ms s subs0 just-elems just-supers <? f)
 
       ;; Construct sets for comparison:
 
-      (define elems (append subs just-elems))
-      (define supers (append elems just-supers))
-      (define not-subs (append just-elems just-supers))
+      (define subs (sort subs0 <?))
+      (define elems (sort (append subs just-elems) <?))
+      (define supers (sort (append elems just-supers) <?))
+      (define not-subs (sort (append just-elems just-supers) <?))
       (define msA (apply mset-A elems))
       (define msB (apply mset-B elems))
       (define msC (apply mset-C elems))
@@ -244,6 +245,25 @@
       (define s-sub (apply set-A subs))
       (define s-super (apply set-A supers))
       (define s-not-sub (apply set-A not-subs))
+
+      (define (set->sorted-list s) (sort (set->list s) <?))
+
+      ;; For weak hash tables, to make the results more predictable:
+      (collect-garbage)
+
+      ;; Test contents:
+
+      (define mcontents (sort (set->list ms) <?))
+      (test #true equal? mcontents elems)
+      (test (null? just-elems) equal? mcontents subs)
+      (test (null? just-supers) equal? mcontents supers)
+      (test (and (null? subs) (null? just-supers)) equal? mcontents not-subs)
+
+      (define contents (sort (set->list s) <?))
+      (test #true equal? contents elems)
+      (test (null? just-elems) equal? contents subs)
+      (test (null? just-supers) equal? contents supers)
+      (test (and (null? subs) (null? just-supers)) equal? contents not-subs)
 
       ;; Test equality:
 
@@ -469,7 +489,11 @@
     (t1 ms s7 (list x3) (list) (list x1 x2 x4) string<? string-upcase)
     (t1 ms s7 (list) (list x3) (list x1 x2 x4) string<? string-upcase)
 
-    (void x1 x2 x3 x4))
+    ;; need to do something to keep these from being garbage collected
+    (test "one" string-copy x1)
+    (test "two" string-copy x2)
+    (test "three" string-copy x3)
+    (test "four" string-copy x4))
 
   (t mutable-set mutable-seteqv mutable-seteq set seteqv seteq)
   (t mutable-seteqv mutable-seteq mutable-set seteqv seteq set)

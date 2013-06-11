@@ -167,6 +167,7 @@
     (define table (make))
     (for ([x (in-list xs)])
       (hash-set! table x (string->symbol x)))
+    (collect-garbage)
     table)
 
   (define (build . xs) (apply build-from make-weak-hash xs))
@@ -191,75 +192,147 @@
 
   (test #false equal? (build x1 x2 x3) (buildeq x1 x2 x3))
   (test #false equal? (buildeq x1 x2 x3) (buildeqv x1 x2 x3))
-  (test #false equal? (buildeqv x1 x2 x3) (build x1 x2 x3)))
+  (test #false equal? (buildeqv x1 x2 x3) (build x1 x2 x3))
+
+  (define b (build x1 x2 x3))
+  (define beq (buildeq x1 x2 x3))
+  (define beqv (buildeqv x1 x2 x3))
+
+  (define b* (hash-copy b))
+  (define beq* (hash-copy beq))
+  (define beqv* (hash-copy beqv))
+
+  (test #true equal? (hash->list b) (hash->list b*))
+  (test #true equal? (hash->list beq) (hash->list beq*))
+  (test #true equal? (hash->list beqv) (hash->list beqv*))
+
+  (hash-remove! b x1)
+  (hash-remove! beq x1)
+  (hash-remove! beqv x1)
+
+  (hash-set! b* x4 'four)
+  (hash-set! beq* x4 'four)
+  (hash-set! beqv* x4 'four)
+
+  (test #false equal? (hash->list b) (hash->list b*))
+  (test #false equal? (hash->list beq) (hash->list beq*))
+  (test #false equal? (hash->list beqv) (hash->list beqv*))
+
+  (test #true equal? (hash->list b) (hash->list (build x2 x3)))
+  (test #true equal? (hash->list beq) (hash->list (buildeq x2 x3)))
+  (test #true equal? (hash->list beqv) (hash->list (buildeqv x2 x3)))
+
+  (test #true equal? (hash->list b*) (hash->list (build x1 x2 x3 x4)))
+  (test #true equal? (hash->list beq*) (hash->list (buildeq x1 x2 x3 x4)))
+  (test #true equal? (hash->list beqv*) (hash->list (buildeqv x1 x2 x3 x4))))
 
 (let ()
   (local-require racket/fixnum)
   (define (int=? x y) (fx= x y))
   (define (int-hc x) (fxand x 1))
   (define (int-hc2 x) (fxand x 2))
+
+  (define (test-custom-hash make-A make-B)
+
+    (test '() sort (dict->list (make-A)) < #:key car)
+    (test '() sort (dict->list (make-B)) < #:key car)
+
+    (test #t equal? (make-A) (make-A))
+    (test #t equal? (make-B) (make-B))
+    (test #f equal? (make-A) (make-B))
+    (test #f equal? (make-B) (make-A))
+
+    (test '((1 . "1")) sort (dict->list (make-A 1)) < #:key car)
+    (test '((1 . "1")) sort (dict->list (make-B 1)) < #:key car)
+
+    (test #t equal? (make-A 1) (make-A 1))
+    (test #f equal? (make-A 1) (make-A))
+    (test #f equal? (make-A) (make-A 1))
+
+    (test #t equal? (make-B 1) (make-B 1))
+    (test #f equal? (make-B 1) (make-B))
+    (test #f equal? (make-B) (make-B 1))
+
+    (test #f equal? (make-B 1) (make-A 1))
+    (test #f equal? (make-A 1) (make-B 1))
+    (test #f equal? (make-A 1) (make-B))
+    (test #f equal? (make-B 1) (make-A))
+    (test #f equal? (make-A) (make-B 1))
+    (test #f equal? (make-B) (make-A 1))
+
+    (test '((1 . "1") (2 . "2")) sort (dict->list (make-A 1 2)) < #:key car)
+    (test '((1 . "1") (2 . "2")) sort (dict->list (make-B 1 2)) < #:key car)
+
+    (test #t equal? (make-A 1 2) (make-A 1 2))
+    (test #t equal? (make-A 1 2) (make-A 2 1))
+    (test #t equal? (make-A 2 1) (make-A 1 2))
+    (test #f equal? (make-A 1 2) (make-A 1))
+    (test #f equal? (make-A 1 2) (make-A))
+    (test #f equal? (make-A 1) (make-A 1 2))
+    (test #f equal? (make-A) (make-A 1 2))
+
+    (test #t equal? (make-B 1 2) (make-B 1 2))
+    (test #t equal? (make-B 1 2) (make-B 2 1))
+    (test #t equal? (make-B 2 1) (make-B 1 2))
+    (test #f equal? (make-B 1 2) (make-B 1))
+    (test #f equal? (make-B 1 2) (make-B))
+    (test #f equal? (make-B 1) (make-B 1 2))
+    (test #f equal? (make-B) (make-B 1 2))
+
+    (test #f equal? (make-B 1 2) (make-A 1 2))
+    (test #f equal? (make-B 1 2) (make-A 2 1))
+    (test #f equal? (make-B 2 1) (make-A 1 2))
+    (test #f equal? (make-B 1 2) (make-A 1))
+    (test #f equal? (make-B 1 2) (make-A))
+    (test #f equal? (make-B 1) (make-A 1 2))
+    (test #f equal? (make-B) (make-A 1 2))
+
+    (test #f equal? (make-A 1 2) (make-B 1 2))
+    (test #f equal? (make-A 1 2) (make-B 2 1))
+    (test #f equal? (make-A 2 1) (make-B 1 2))
+    (test #f equal? (make-A 1 2) (make-B 1))
+    (test #f equal? (make-A 1 2) (make-B))
+    (test #f equal? (make-A 1) (make-B 1 2))
+    (test #f equal? (make-A) (make-B 1 2)))
+
   (define (int-hash . numbers)
+    (define ht (make-custom-hash int=? int-hc int-hc2))
+    (for ([number (in-list numbers)])
+      (dict-set! ht number (number->string number)))
+    ht)
+  (define (int-assoc . numbers)
+    (define ht (make-custom-hash int=?))
+    (for ([number (in-list numbers)])
+      (dict-set! ht number (number->string number)))
+    ht)
+
+  (define (weak-int-hash . numbers)
+    (define ht (make-weak-custom-hash int=? int-hc int-hc2))
+    (for ([number (in-list numbers)])
+      (dict-set! ht number (number->string number)))
+    (collect-garbage)
+    ht)
+  (define (weak-int-assoc . numbers)
+    (define ht (make-weak-custom-hash int=?))
+    (for ([number (in-list numbers)])
+      (dict-set! ht number (number->string number)))
+    (collect-garbage)
+    ht)
+
+  (define (immutable-int-hash . numbers)
     (for/fold
         ([ht (make-immutable-custom-hash int=? int-hc int-hc2)])
         ([number (in-list numbers)])
       (dict-set ht number (number->string number))))
-  (define (int-assoc . numbers)
+  (define (immutable-int-assoc . numbers)
     (for/fold
         ([ht (make-immutable-custom-hash int=?)])
         ([number (in-list numbers)])
       (dict-set ht number (number->string number))))
 
-  (test #t equal? (int-hash) (int-hash))
-  (test #t equal? (int-assoc) (int-assoc))
-  (test #f equal? (int-hash) (int-assoc))
-  (test #f equal? (int-assoc) (int-hash))
-
-  (test #t equal? (int-hash 1) (int-hash 1))
-  (test #f equal? (int-hash 1) (int-hash))
-  (test #f equal? (int-hash) (int-hash 1))
-
-  (test #t equal? (int-assoc 1) (int-assoc 1))
-  (test #f equal? (int-assoc 1) (int-assoc))
-  (test #f equal? (int-assoc) (int-assoc 1))
-
-  (test #f equal? (int-assoc 1) (int-hash 1))
-  (test #f equal? (int-hash 1) (int-assoc 1))
-  (test #f equal? (int-hash 1) (int-assoc))
-  (test #f equal? (int-assoc 1) (int-hash))
-  (test #f equal? (int-hash) (int-assoc 1))
-  (test #f equal? (int-assoc) (int-hash 1))
-
-  (test #t equal? (int-hash 1 2) (int-hash 1 2))
-  (test #t equal? (int-hash 1 2) (int-hash 2 1))
-  (test #t equal? (int-hash 2 1) (int-hash 1 2))
-  (test #f equal? (int-hash 1 2) (int-hash 1))
-  (test #f equal? (int-hash 1 2) (int-hash))
-  (test #f equal? (int-hash 1) (int-hash 1 2))
-  (test #f equal? (int-hash) (int-hash 1 2))
-
-  (test #t equal? (int-assoc 1 2) (int-assoc 1 2))
-  (test #t equal? (int-assoc 1 2) (int-assoc 2 1))
-  (test #t equal? (int-assoc 2 1) (int-assoc 1 2))
-  (test #f equal? (int-assoc 1 2) (int-assoc 1))
-  (test #f equal? (int-assoc 1 2) (int-assoc))
-  (test #f equal? (int-assoc 1) (int-assoc 1 2))
-  (test #f equal? (int-assoc) (int-assoc 1 2))
-
-  (test #f equal? (int-assoc 1 2) (int-hash 1 2))
-  (test #f equal? (int-assoc 1 2) (int-hash 2 1))
-  (test #f equal? (int-assoc 2 1) (int-hash 1 2))
-  (test #f equal? (int-assoc 1 2) (int-hash 1))
-  (test #f equal? (int-assoc 1 2) (int-hash))
-  (test #f equal? (int-assoc 1) (int-hash 1 2))
-  (test #f equal? (int-assoc) (int-hash 1 2))
-
-  (test #f equal? (int-hash 1 2) (int-assoc 1 2))
-  (test #f equal? (int-hash 1 2) (int-assoc 2 1))
-  (test #f equal? (int-hash 2 1) (int-assoc 1 2))
-  (test #f equal? (int-hash 1 2) (int-assoc 1))
-  (test #f equal? (int-hash 1 2) (int-assoc))
-  (test #f equal? (int-hash 1) (int-assoc 1 2))
-  (test #f equal? (int-hash) (int-assoc 1 2)))
+  (test-custom-hash int-hash int-assoc)
+  (test-custom-hash weak-int-hash weak-int-assoc)
+  (test-custom-hash immutable-int-hash immutable-int-assoc))
 
 ;; ----------------------------------------
 
