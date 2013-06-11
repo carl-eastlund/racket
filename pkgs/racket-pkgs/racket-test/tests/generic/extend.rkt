@@ -41,17 +41,12 @@
 (check-equal? (stream->list (stream-reverse (computed-stream 5 number->string)))
               (list "1" "2" "3" "4" "5"))
 
-;; Testing multiple-inheritance, diamond dependencies, and define/generic:
-
-(define-generics sizeable
-  (size-of sizeable))
+;; Testing multiple-inheritance and define/generic:
 
 (define-generics listable
-  #:extend gen:sizeable
   (to-list listable))
 
 (define-generics vectorable
-  #:extend gen:sizeable
   (to-vector vectorable))
 
 (define-generics streamable
@@ -60,20 +55,17 @@
 
 (struct listish [contents]
   #:methods gen:listable
-  [(define (to-list x) (listish-contents x))
-   (define (size-of x) (length (to-list x)))])
+  [(define (to-list x) (listish-contents x))])
 
 (struct vectorish [contents]
   #:methods gen:vectorable
-  [(define (to-vector x) (vectorish-contents x))
-   (define (size-of x) (vector-length (to-vector x)))])
+  [(define (to-vector x) (vectorish-contents x))])
 
 (struct streamish [contents]
   #:methods gen:streamable
   [(define/generic 2lst to-list)
    (define/generic 2vec to-vector)
    (define/generic 2str to-stream)
-   (define (size-of x) (stream-length (streamish-contents x)))
    (define (to-list x) (stream->list (streamish-contents x)))
    (define (to-vector x) (list->vector (to-list x)))
    (define (to-stream x . others)
@@ -83,7 +75,7 @@
               (cond
                 [(streamable? other) (2str other)]
                 [(listable? other) (2lst other)]
-                [(vectorable? other) (2vec other)]))))])
+                [(vectorable? other) (vector->list (2vec other))]))))])
 
 (check-equal? (streamable? (streamish (stream 1 2 3))) #true)
 (check-equal? (vectorable? (streamish (stream 1 2 3))) #true)
