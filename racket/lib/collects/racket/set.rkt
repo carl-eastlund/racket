@@ -1203,18 +1203,33 @@
                             1 =? hc hc2)))
   (define =?-proc
     (cond
-      [(procedure-arity-includes? =? 3) =?]
-      [else (lambda (x y rec) (=? x y))]))
+      [(procedure-arity-includes? =? 3)
+       (lambda (x y rec)
+         (=? (custom-wrapper-contents x)
+             (custom-wrapper-contents y)
+             rec))]
+      [else
+       (lambda (x y rec)
+         (=? (custom-wrapper-contents x)
+             (custom-wrapper-contents y)))]))
   (define hc-proc
     (cond
       [(not hc) (lambda (x rec) 1)]
-      [(procedure-arity-includes? hc 2) hc]
-      [else (lambda (x rec) (hc x))]))
+      [(procedure-arity-includes? hc 2)
+       (lambda (x rec)
+         (hc (custom-wrapper-contents x) rec))]
+      [else
+       (lambda (x rec)
+         (hc (custom-wrapper-contents x)))]))
   (define hc2-proc
     (cond
       [(not hc2) (lambda (x rec) 1)]
-      [(procedure-arity-includes? hc2 2) hc2]
-      [else (lambda (x rec) (hc2 x))]))
+      [(procedure-arity-includes? hc2 2)
+       (lambda (x rec)
+         (hc2 (custom-wrapper-contents x) rec))]
+      [else
+       (lambda (x rec)
+         (hc2 (custom-wrapper-contents x)))]))
   (values =?-proc hc-proc hc2-proc))
 
 (define (make-custom-set =? [hc #f] [hc2 #f])
