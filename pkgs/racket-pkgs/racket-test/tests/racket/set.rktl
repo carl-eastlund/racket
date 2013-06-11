@@ -202,24 +202,22 @@
 
 (let ()
 
-  (local-require racket/fixnum)
-
-  (define (int=? x y rec) (fx= x y))
-  (define (int-hc1 x rec) (fxand x 1))
-  (define (int-hc2 x rec) (fxand x 2))
-  (define (intset . ints)
+  (define (str=? x y rec) (string=? x y))
+  (define (str-hc1 x rec) (string-length x))
+  (define (str-hc2 x rec) (rec (string-ref x 0)))
+  (define (strset . strs)
     (for/fold
-        ([s (make-custom-set int=? int-hc1 int-hc2)])
-        ([i (in-list ints)])
+        ([s (make-custom-set str=? str-hc1 str-hc2)])
+        ([i (in-list strs)])
       (set-add s i)))
-  (define (mutable-intset . ints)
-    (define s (make-mutable-custom-set int=? int-hc1 int-hc2))
-    (for ([i (in-list ints)])
+  (define (mutable-strset . strs)
+    (define s (make-mutable-custom-set str=? str-hc1 str-hc2))
+    (for ([i (in-list strs)])
       (set-add! s i))
     s)
-  (define (weak-intset . ints)
-    (define s (make-weak-custom-set int=? int-hc1 int-hc2))
-    (for ([i (in-list ints)])
+  (define (weak-strset . strs)
+    (define s (make-weak-custom-set str=? str-hc1 str-hc2))
+    (for ([i (in-list strs)])
       (set-add! s i))
     s)
 
@@ -227,7 +225,7 @@
 
   (define (t mset-A mset-B mset-C set-A set-B set-C)
 
-    (define (t1 ms s subs just-elems just-supers)
+    (define (t1 ms s subs just-elems just-supers <? f)
 
       ;; Construct sets for comparison:
 
@@ -391,79 +389,87 @@
 
       ;; Test iteration:
 
-      (define sorted (sort elems <))
+      (define sorted (sort elems <?))
 
-      (test (map sub1 sorted) sort (set-map ms sub1) <)
-      (test (map sub1 sorted) sort (set-map s sub1) <)
+      (test (map f sorted) sort (set-map ms f) <?)
+      (test (map f sorted) sort (set-map s f) <?)
 
       (test sorted
             sort
             (let ([xs '()])
               (set-for-each ms (lambda (x) (set! xs (cons x xs))))
               xs)
-            <)
+            <?)
       (test sorted
             sort
             (let ([xs '()])
               (set-for-each s (lambda (x) (set! xs (cons x xs))))
               xs)
-            <)
+            <?)
 
-      (test sorted sort (for/list ([x (in-set ms)]) x) <)
-      (test sorted sort (for/list ([x (in-set s)]) x) <)
+      (test sorted sort (for/list ([x (in-set ms)]) x) <?)
+      (test sorted sort (for/list ([x (in-set s)]) x) <?)
 
-      (test sorted sort (sequence->list (in-set ms)) <)
-      (test sorted sort (sequence->list (in-set s)) <)
+      (test sorted sort (sequence->list (in-set ms)) <?)
+      (test sorted sort (sequence->list (in-set s)) <?)
 
-      (test sorted sort (set->list ms) <)
-      (test sorted sort (set->list s) <)
+      (test sorted sort (set->list ms) <?)
+      (test sorted sort (set->list s) <?)
 
       (void))
 
     ;; Test instances:
 
-    (define ms (mset-A 1 2 3))
-    (define s0 (set-A 1 2 3))
-    (t1 ms s0 '(1 2) '(3) '(4))
+    ;; Using string constants stored in variables:
+    ;; - allows us to hash them via equal, eqv, and eq
+    ;; - allows us to keep them around in weak tables
+    (define x1 (string-copy "one"))
+    (define x2 (string-copy "two"))
+    (define x3 (string-copy "three"))
+    (define x4 (string-copy "four"))
+
+    (define ms (mset-A x1 x2 x3))
+    (define s0 (set-A x1 x2 x3))
+    (t1 ms s0 (list x1 x2) (list x3) (list x4) string<? string-upcase)
 
     (define msc (set-copy ms))
     (define sc (set-copy s0))
-    (t1 msc sc '(1 2) '(3) '(4))
+    (t1 msc sc (list x1 x2) (list x3) (list x4) string<? string-upcase)
 
-    (set-remove! ms 3)
-    (define s1 (set-remove s0 3))
-    (t1 ms s1 '(1) '(2) '(3 4))
+    (set-remove! ms x3)
+    (define s1 (set-remove s0 x3))
+    (t1 ms s1 (list x1) (list x2) (list x3 x4) string<? string-upcase)
 
     ;; Ensure the copy hasn't changed.
-    (t1 msc sc '(1 2) '(3) '(4))
+    (t1 msc sc (list x1 x2) (list x3) (list x4) string<? string-upcase)
 
-    (set-add! ms 4)
-    (define s2 (set-add s1 4))
-    (t1 ms s2 '(1) '(2 4) '(3))
+    (set-add! ms x4)
+    (define s2 (set-add s1 x4))
+    (t1 ms s2 (list x1) (list x2 x4) (list x3) string<? string-upcase)
 
     (set-clear! ms)
     (define s3 (set-clear s2))
-    (t1 ms s3 '() '() '(1 2 3 4))
+    (t1 ms s3 (list) (list) (list x1 x2 x3 x4) string<? string-upcase)
 
-    (set-union! ms (mset-A 1 2) (mset-A 2 3))
-    (define s4 (set-union s3 (set-A 1 2) (set-A 2 3)))
-    (t1 ms s4 '(2) '(1 3) '(4))
+    (set-union! ms (mset-A x1 x2) (mset-A x2 x3))
+    (define s4 (set-union s3 (set-A x1 x2) (set-A x2 x3)))
+    (t1 ms s4 (list x2) (list x1 x3) (list x4) string<? string-upcase)
 
-    (set-intersect! ms (mset-A 1 2) (mset-A 2 3))
-    (define s5 (set-intersect s4 (set-A 1 2) (set-A 2 3)))
-    (t1 ms s5 '(2) '() '(1 3 4))
-    (t1 ms s5 '() '(2) '(1 3 4))
+    (set-intersect! ms (mset-A x1 x2) (mset-A x2 x3))
+    (define s5 (set-intersect s4 (set-A x1 x2) (set-A x2 x3)))
+    (t1 ms s5 (list x2) (list) (list x1 x3 x4) string<? string-upcase)
+    (t1 ms s5 (list) (list x2) (list x1 x3 x4) string<? string-upcase)
 
-    (set-symmetric-difference! ms (mset-A 1 2) (mset-A 2 3))
-    (define s6 (set-symmetric-difference s5 (set-A 1 2) (set-A 2 3)))
-    (t1 ms s6 '(1 3) '(2) '(4))
+    (set-symmetric-difference! ms (mset-A x1 x2) (mset-A x2 x3))
+    (define s6 (set-symmetric-difference s5 (set-A x1 x2) (set-A x2 x3)))
+    (t1 ms s6 (list x1 x3) (list x2) (list x4) string<? string-upcase)
 
-    (set-subtract! ms (mset-A 1 4) (mset-A 2 4))
-    (define s7 (set-subtract s6 (set-A 1 4) (set-A 2 4)))
-    (t1 ms s7 '(3) '() '(1 2 4))
-    (t1 ms s7 '() '(3) '(1 2 4))
+    (set-subtract! ms (mset-A x1 x4) (mset-A x2 x4))
+    (define s7 (set-subtract s6 (set-A x1 x4) (set-A x2 x4)))
+    (t1 ms s7 (list x3) (list) (list x1 x2 x4) string<? string-upcase)
+    (t1 ms s7 (list) (list x3) (list x1 x2 x4) string<? string-upcase)
 
-    (void))
+    (void x1 x2 x3 x4))
 
   (t mutable-set mutable-seteqv mutable-seteq set seteqv seteq)
   (t mutable-seteqv mutable-seteq mutable-set seteqv seteq set)
@@ -473,8 +479,8 @@
   (t weak-seteq weak-set weak-seteqv seteq set seteqv)
   (t weak-set mutable-seteqv mutable-seteq set seteqv seteq)
   (t mutable-set weak-seteqv weak-seteq set seteqv seteq)
-  (t mutable-intset mutable-set weak-set intset set seteqv)
-  (t weak-intset mutable-seteqv weak-seteq intset seteqv seteq))
+  (t mutable-strset mutable-set weak-set strset set seteqv)
+  (t weak-strset mutable-seteqv weak-seteq strset seteqv seteq))
 
 (test "#<set: 1>" 
       'print-set1
