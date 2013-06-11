@@ -202,6 +202,8 @@
 
 (let ()
 
+  (local-require racket/fixnum)
+
   (define (int=? x y rec) (fx= x y))
   (define (int-hc1 x rec) (fxand x 1))
   (define (int-hc2 x rec) (fxand x 2))
