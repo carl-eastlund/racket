@@ -600,8 +600,8 @@
 
 ;; Easily enabled/disabled debug printing:
 (define-syntax dprintf
-  (make-rename-transformer #'eprintf)
-  #;(lambda (stx) #'(begin)))
+  #;(make-rename-transformer #'eprintf)
+  (lambda (stx) #'(begin)))
 
 (define (implement-ht-set name ;; e.g. 'mutable-seteqv
                           desc ;; e.g. "(and/c set? set-eq?)"
