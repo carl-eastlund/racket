@@ -155,6 +155,70 @@
   ;; preserve from GC:
   (list s1 s2))
 
+(let ()
+  (define (len-hash . numbers)
+    (for/fold
+        ([ht (make-immutable-custom-hash string=? string-length)])
+        ([number (in-list numbers)])
+      (dict-set ht (number->string number) number)))
+  (define (equ-hash . numbers)
+    (for/fold
+        ([ht (make-immutable-custom-hash string=? equal-hash-code)])
+        ([number (in-list numbers)])
+      (dict-set ht (number->string number) number)))
+
+  (test #t equal? (len-hash) (len-hash))
+  (test #t equal? (equ-hash) (equ-hash))
+  (test #f equal? (len-hash) (equ-hash))
+  (test #f equal? (equ-hash) (len-hash))
+
+  (test #t equal? (len-hash 1) (len-hash 1))
+  (test #f equal? (len-hash 1) (len-hash))
+  (test #f equal? (len-hash) (len-hash 1))
+
+  (test #t equal? (equ-hash 1) (equ-hash 1))
+  (test #f equal? (equ-hash 1) (equ-hash))
+  (test #f equal? (equ-hash) (equ-hash 1))
+
+  (test #f equal? (equ-hash 1) (len-hash 1))
+  (test #f equal? (len-hash 1) (equ-hash 1))
+  (test #f equal? (len-hash 1) (equ-hash))
+  (test #f equal? (equ-hash 1) (len-hash))
+  (test #f equal? (len-hash) (equ-hash 1))
+  (test #f equal? (equ-hash) (len-hash 1))
+
+  (test #t equal? (len-hash 1 2) (len-hash 1 2))
+  (test #t equal? (len-hash 1 2) (len-hash 2 1))
+  (test #t equal? (len-hash 2 1) (len-hash 1 2))
+  (test #f equal? (len-hash 1 2) (len-hash 1))
+  (test #f equal? (len-hash 1 2) (len-hash))
+  (test #f equal? (len-hash 1) (len-hash 1 2))
+  (test #f equal? (len-hash) (len-hash 1 2))
+
+  (test #t equal? (equ-hash 1 2) (equ-hash 1 2))
+  (test #t equal? (equ-hash 1 2) (equ-hash 2 1))
+  (test #t equal? (equ-hash 2 1) (equ-hash 1 2))
+  (test #f equal? (equ-hash 1 2) (equ-hash 1))
+  (test #f equal? (equ-hash 1 2) (equ-hash))
+  (test #f equal? (equ-hash 1) (equ-hash 1 2))
+  (test #f equal? (equ-hash) (equ-hash 1 2))
+
+  (test #f equal? (equ-hash 1 2) (len-hash 1 2))
+  (test #f equal? (equ-hash 1 2) (len-hash 2 1))
+  (test #f equal? (equ-hash 2 1) (len-hash 1 2))
+  (test #f equal? (equ-hash 1 2) (len-hash 1))
+  (test #f equal? (equ-hash 1 2) (len-hash))
+  (test #f equal? (equ-hash 1) (len-hash 1 2))
+  (test #f equal? (equ-hash) (len-hash 1 2))
+
+  (test #f equal? (len-hash 1 2) (equ-hash 1 2))
+  (test #f equal? (len-hash 1 2) (equ-hash 2 1))
+  (test #f equal? (len-hash 2 1) (equ-hash 1 2))
+  (test #f equal? (len-hash 1 2) (equ-hash 1))
+  (test #f equal? (len-hash 1 2) (equ-hash))
+  (test #f equal? (len-hash 1) (equ-hash 1 2))
+  (test #f equal? (len-hash) (equ-hash 1 2)))
+
 ;; ----------------------------------------
 
 (report-errs)
