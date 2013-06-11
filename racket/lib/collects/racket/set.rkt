@@ -600,8 +600,8 @@
 
 ;; Easily enabled/disabled debug printing:
 (define-syntax dprintf
-  #;(make-rename-transformer #'eprintf)
-  (lambda (stx) #'(begin)))
+  (make-rename-transformer #'eprintf)
+  #;(lambda (stx) #'(begin)))
 
 (define (implement-ht-set name ;; e.g. 'mutable-seteqv
                           desc ;; e.g. "(and/c set? set-eq?)"
@@ -854,7 +854,7 @@
     (for ([k (in-hash-keys ht2)])
       (hash-remove! ht1 k)))
   (define (s-symm-diff! s1 s2)
-    (dprintf "(set-symmetric-difference! s1 s2)\n" s1 s2)
+    (dprintf "(set-symmetric-difference! ~v ~v)\n" s1 s2)
     (define ht1 (s-ht s1))
     (define ht2 (alt-s-ht 'set-symmetric-difference! s1 s2))
     (for ([k (in-hash-keys ht2)])
