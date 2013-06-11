@@ -1144,43 +1144,81 @@
               (define simple-set-subtract! ws-subtract!)
               (define simple-set-symmetric-difference! ws-symm-diff!)])))]))
 
-(define (default-wrap) values)
-(define (default-unwrap) values)
+(define (default-wrapper x) x)
+(define (default-unwrapper x) x)
+
+(define (make-default-wrapper) default-wrapper)
+(define (make-default-unwrapper) default-unwrapper)
 
 (declare-ht-sets serializable-struct set [] "(and/c set? set-equal?)"
   make-immutable-hash
   make-hash
   make-weak-hash
-  default-wrap
-  default-unwrap)
+  make-default-wrapper
+  make-default-unwrapper)
 
 (declare-ht-sets serializable-struct seteqv [] "(and/c set? set-eqv?)"
   make-immutable-hasheqv
   make-hasheqv
   make-weak-hasheqv
-  default-wrap
-  default-unwrap)
+  make-default-wrapper
+  make-default-unwrapper)
 
 (declare-ht-sets serializable-struct seteq [] "(and/c set? set-eq?)"
   make-immutable-hasheq
   make-hasheq
   make-weak-hasheq
-  default-wrap
-  default-unwrap)
+  make-default-wrapper
+  make-default-unwrapper)
 
-(struct custom-wrapper [contents])
+(define (custom-equal? x y rec)
+  (define x.contents (custom-wrapper-contents x))
+  (define x.equal? (custom-wrapper-equal? x))
+  (define x.hash-code1 (custom-wrapper-hash-code1 x))
+  (define x.hash-code2 (custom-wrapper-hash-code2 x))
+  (define y.contents (custom-wrapper-contents y))
+  (define y.equal? (custom-wrapper-equal? y))
+  (define y.hash-code1 (custom-wrapper-hash-code1 y))
+  (define y.hash-code2 (custom-wrapper-hash-code2 y))
+  (and (equal? x.equal? y.equal?)
+       (equal? x.hash-code1 y.hash-code1)
+       (equal? x.hash-code2 y.hash-code2)
+       (if (procedure-arity-includes? x.equal? 3)
+           (x.equal? x.contents y.contents rec)
+           (x.equal? x.contents y.contents))))
 
-(define (custom-wrap wrapper) wrapper)
-(define (custom-unwrap wrapper) custom-wrapper-contents)
+(define (custom-hash-code1 x rec)
+  (define x.hash-code1 (custom-wrapper-hash-code1 x))
+  (define x.contents (custom-wrapper-contents x))
+  (if (procedure-arity-includes? x.hash-code1 2)
+      (x.hash-code1 x.contents rec)
+      (x.hash-code1 x.contents)))
 
-(declare-ht-sets struct custom-set [wrapper] "a custom set"
+(define (custom-hash-code2 x rec)
+  (define x.hash-code2 (custom-wrapper-hash-code2 x))
+  (define x.contents (custom-wrapper-contents x))
+  (if (procedure-arity-includes? x.hash-code2 2)
+      (x.hash-code2 x.contents rec)
+      (x.hash-code2 x.contents)))
+
+(struct custom-wrapper [contents equal? hash-code1 hash-code2]
+  #:property prop:equal+hash
+  (list custom-equal? custom-hash-code1 custom-hash-code2))
+
+(define (make-custom-wrapper =? hc1 hc2)
+  (lambda (x) (custom-wrapper x =? hc1 hc2)))
+
+(define (make-custom-unwrapper =? hc1 hc2)
+  custom-wrapper-contents)
+
+(declare-ht-sets struct custom-set [equal? hash-code1 hash-code2] "a custom set"
   make-immutable-hash
   make-hash
   make-weak-hash
-  custom-wrap
-  custom-unwrap)
+  make-custom-wrapper
+  make-custom-unwrapper)
 
-(define (custom-set-procs who =? hc hc2)
+(define (check-custom-set-procs! who =? hc hc2)
   (unless (and (procedure? =?)
                (or (procedure-arity-includes? =? 2)
                    (procedure-arity-includes? =? 3)))
@@ -1200,58 +1238,21 @@
                      (procedure-arity-includes? hc2 2)))
       (raise-argument-error who
                             "#f or a procedure of 1 or 2 arguments"
-                            1 =? hc hc2)))
-  (define =?-proc
-    (cond
-      [(procedure-arity-includes? =? 3)
-       (lambda (x y rec)
-         (=? (custom-wrapper-contents x)
-             (custom-wrapper-contents y)
-             rec))]
-      [else
-       (lambda (x y rec)
-         (=? (custom-wrapper-contents x)
-             (custom-wrapper-contents y)))]))
-  (define hc-proc
-    (cond
-      [(not hc) (lambda (x rec) 1)]
-      [(procedure-arity-includes? hc 2)
-       (lambda (x rec)
-         (hc (custom-wrapper-contents x) rec))]
-      [else
-       (lambda (x rec)
-         (hc (custom-wrapper-contents x)))]))
-  (define hc2-proc
-    (cond
-      [(not hc2) (lambda (x rec) 1)]
-      [(procedure-arity-includes? hc2 2)
-       (lambda (x rec)
-         (hc2 (custom-wrapper-contents x) rec))]
-      [else
-       (lambda (x rec)
-         (hc2 (custom-wrapper-contents x)))]))
-  (values =?-proc hc-proc hc2-proc))
+                            1 =? hc hc2))))
 
-(define (make-custom-set =? [hc #f] [hc2 #f])
-  (define-values (=?-proc hc-proc hc2-proc)
-    (custom-set-procs 'make-custom-set =? hc hc2))
-  (struct hash-wrapper custom-wrapper []
-    #:property prop:equal+hash (list =?-proc hc-proc hc2-proc))
-  (make-immutable-ht-custom-set (make-immutable-hash) hash-wrapper))
+(define (default-hc x rec) 1)
 
-(define (make-mutable-custom-set =? [hc #f] [hc2 #f])
-  (define-values (=?-proc hc-proc hc2-proc)
-    (custom-set-procs 'make-mutable-custom-set =? hc hc2))
-  (struct hash-wrapper custom-wrapper []
-    #:property prop:equal+hash (list =?-proc hc-proc hc2-proc))
-  (make-mutable-ht-custom-set (make-hash) hash-wrapper))
+(define (make-custom-set =? [hc default-hc] [hc2 default-hc])
+  (check-custom-set-procs! 'make-custom-set =? hc hc2)
+  (make-immutable-ht-custom-set (make-immutable-hash) =? hc hc2))
 
-(define (make-weak-custom-set =? [hc #f] [hc2 #f])
-  (define-values (=?-proc hc-proc hc2-proc)
-    (custom-set-procs 'make-mutable-custom-set =? hc hc2))
-  (struct hash-wrapper custom-wrapper []
-    #:property prop:equal+hash (list =?-proc hc-proc hc2-proc))
-  (make-weak-ht-custom-set (make-weak-hash) hash-wrapper))
+(define (make-mutable-custom-set =? [hc default-hc] [hc2 default-hc])
+  (check-custom-set-procs! 'make-mutable-custom-set =? hc hc2)
+  (make-mutable-ht-custom-set (make-hash) =? hc hc2))
+
+(define (make-weak-custom-set =? [hc default-hc] [hc2 default-hc])
+  (check-custom-set-procs! 'make-weak-custom-set =? hc hc2)
+  (make-weak-ht-custom-set (make-weak-hash) =? hc hc2))
 
 (define-syntax-rule (define-for for/fold/derived for/set
                                 make-hash make-set)
