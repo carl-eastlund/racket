@@ -34,7 +34,7 @@
         (cond
           [(null? exts) tail]
           [(free-id-ref ext-table (car exts) #f)
-           (loop (cdr exts) tail)]
+           (wrong-syntax (car exts) "duplicate extension of generics group")]
           [else
            (define ext (car exts))
            (define info
