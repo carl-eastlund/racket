@@ -473,7 +473,17 @@
   (define =? (parent-hash-equal-proc d))
   (define hc (parent-hash-hash-proc d))
   (define hc2 (parent-hash-hash2-proc d))
-  (lambda (x) (hash-box x =? hc hc2)))
+  (cond
+    [(weak-custom-hash? d)
+     (define ephemerons (weak-custom-hash-ephemerons d))
+     (lambda (x)
+       (define e (hash-ref ephemerons x #f))
+       (define b (and e (ephemeron-value e)))
+       (or b
+           (let ([b (hash-box x =? hc hc2)])
+             (hash-set! ephemerons x (make-ephemeron x b))
+             b)))]
+    [else (lambda (x) (hash-box x =? hc hc2))]))
 
 (struct hash-box (key equal-proc hash-proc hash2-proc)
   #:methods gen:equal+hash
@@ -526,6 +536,17 @@
    (define dict-iterate-key custom-hash-iterate-key)
    (define dict-iterate-value custom-hash-iterate-value)])
 
+(struct weak-custom-hash parent-hash (ephemerons)
+  #:methods gen:dict
+  [(define dict-ref custom-hash-ref)
+   (define dict-set! custom-hash-set!)
+   (define dict-remove! custom-hash-remove!)
+   (define dict-count custom-hash-count)
+   (define dict-iterate-first custom-hash-iterate-first)
+   (define dict-iterate-next custom-hash-iterate-next)
+   (define dict-iterate-key custom-hash-iterate-key)
+   (define dict-iterate-value custom-hash-iterate-value)])
+
 (struct immutable-custom-hash parent-hash ()
   #:methods gen:dict
   [(define dict-ref custom-hash-ref)
@@ -543,7 +564,7 @@
 
 (define (make-weak-custom-hash =? [hc default-hc] [hc2 default-hc])
   (check-hash-procs! 'make-weak-custom-hash =? hc hc2)
-  (custom-hash (make-weak-hash) =? hc hc2))
+  (weak-custom-hash (make-weak-hash) =? hc hc2 (make-weak-hasheq)))
 
 (define (make-immutable-custom-hash =? [hc default-hc] [hc2 default-hc])
   (check-hash-procs! 'make-immutable-custom-hash =? hc hc2)
