@@ -286,26 +286,20 @@
     [else (raise-support-error 'set-subtract s)]))
 
 (define (fallback-symmetric-difference s . sets)
-  (for ([s2 (in-list sets)] [i (in-naturals 1)])
-    (unless (generic-set? s2)
-      (apply raise-argument-error
-             'set-symmetric-difference
-             "generic-set?"
-             i
-             s
-             sets)))
-  (define (keep? x)
-    (even?
-     (for/sum ([s2 (in-list sets)]
-               #:when (set-member? s2 x))
-       1)))
   (cond
-    [(set-implements? s 'set-remove)
-     (for/fold ([s1 s]) ([x (*in-set s)] #:unless (keep? x))
-       (set-remove s1 x))]
-    [(set-implements? s 'set-add 'set-clear)
-     (for/fold ([s1 (set-clear s)]) ([x (*in-set s)] #:when (keep? x))
-       (set-add s1 x))]
+    [(set-implements? s 'set-add 'set-remove)
+     (for/fold ([s1 s]) ([s2 (in-list sets)] [i (in-naturals 1)])
+       (unless (generic-set? s2)
+         (apply raise-argument-error
+                'set-symmetric-difference
+                "generic-set?"
+                i
+                s
+                sets))
+       (for/fold ([s1 s1]) ([x (*in-set s2)])
+         (if (set-member? s1 x)
+             (set-remove s1 x)
+             (set-add s1 x))))]
     [else (raise-support-error 'set-symmetric-difference s)]))
 
 (define (fallback-clear! s)
@@ -375,21 +369,19 @@
 
 (define (fallback-symmetric-difference! s . sets)
   (cond
-    [(set-implements? s 'set-remove!)
+    [(set-implements? s 'set-add!)
      (for ([s2 (in-list sets)] [i (in-naturals 1)])
        (unless (generic-set? s2)
-         (define name 'set-symmetric-difference!)
-         (apply raise-argument-error name "generic-set?" i s sets)))
-     (define (keep? x)
-       (even?
-         (for/sum ([s2 (in-list sets)]
-                   #:when (set-member? s2 x))
-           1)))
-     (define to-remove
-       (for/list ([x (*in-set s)] #:unless (keep? x))
-         x))
-     (for ([x (in-list to-remove)])
-       (set-remove! s x))]
+         (apply raise-argument-error
+                'set-symmetric-difference!
+                "generic-set?"
+                i
+                s
+                sets))
+       (for ([x (*in-set s2)])
+         (if (set-member? s x)
+             (set-remove! s x)
+             (set-add! s x))))]
     [else (raise-support-error 'set-symmetric-difference! s)]))
 
 (define-sequence-syntax *in-set
