@@ -217,6 +217,114 @@
 
 (let ()
 
+  (struct simple-set [elems]
+    #:mutable
+    #:transparent
+    #:methods gen:set
+    [(define (set-member? s x)
+       (and (member x (simple-set-elems s)) #t))
+     (define (set-add s x)
+       (simple-set (cons x (simple-set-elems s))))
+     (define (set-remove s x)
+       (simple-set (remove* (list x) (simple-set-elems s))))
+     (define (set-add! s x)
+       (set-simple-set-elems! s (cons x (simple-set-elems s))))
+     (define (set-remove! s x)
+       (set-simple-set-elems! s (remove* (list x) (simple-set-elems s))))
+     (define (set->stream s)
+       (simple-set-elems s))
+     (define (set-copy-clear s)
+       (simple-set '()))])
+
+  (define (mk . elems) (simple-set elems))
+
+  (test #t set-empty? (mk))
+  (test #f set-empty? (mk 1 2 3))
+
+  (test #f set-member? (mk) 2)
+  (test #t set-member? (mk 1 2 3) 2)
+
+  (test 0 set-count (mk))
+  (test 3 set-count (mk 1 2 3))
+
+  (test #f set=? (mk) (mk 1 2 3))
+  (test #f set=? (mk 1 2 3) (mk))
+  (test #t set=? (mk 1 2 3) (mk 3 2 1))
+
+  (test #t subset? (mk) (mk 1 2 3))
+  (test #f subset? (mk 1 2 3) (mk))
+  (test #t subset? (mk 1 2 3) (mk 3 2 1))
+
+  (test #t proper-subset? (mk) (mk 1 2 3))
+  (test #f proper-subset? (mk 1 2 3) (mk))
+  (test #f proper-subset? (mk 1 2 3) (mk 3 2 1))
+
+  (test '(1 2 3) set-map (mk 1 2 3) values)
+
+  (let ([xs '()])
+    (define (store! x)
+      (set! xs (cons x xs)))
+    (set-for-each (mk 1 2 3) store!)
+    (test '(3 2 1) 'set-for-each/simple-set xs))
+
+  (test (mk 3 2 1) set-copy (mk 1 2 3))
+
+  (test (mk) set-copy-clear (mk 1 2 3))
+
+  (test '(1 2 3) 'in-set/simple-set (for/list ([x (in-set (mk 1 2 3))]) x))
+
+  (test '(1 2 3) set->list (mk 1 2 3))
+
+  (test '(1 2 3) stream->list (set->stream (mk 1 2 3)))
+
+  (test 1 set-first (mk 1 2 3))
+
+  (test (mk 2 3) set-rest (mk 1 2 3))
+
+  (test (mk 4 1 2 3) set-add (mk 1 2 3) 4)
+
+  (test (mk 1 2) set-remove (mk 1 2 3) 3)
+
+  (test (mk) set-clear (mk 1 2 3))
+
+  (test (mk 4 3 2 1 2 3) set-union (mk 1 2 3) (mk 2 3 4))
+
+  (test (mk 2 3) set-intersect (mk 1 2 3) (mk 2 3 4))
+
+  (test (mk 1) set-subtract (mk 1 2 3) (mk 2 3 4))
+
+  (test (mk 4 1) set-symmetric-difference (mk 1 2 3) (mk 2 3 4))
+
+  (let ([s (mk 1 2 3)])
+    (set-add! s 4)
+    (test (mk 4 1 2 3) 'set-add!/simple-set s))
+
+  (let ([s (mk 1 2 3)])
+    (set-remove! s 3)
+    (test (mk 1 2) 'set-remove!/simple-set s))
+
+  (let ([s (mk 1 2 3)])
+    (set-clear! s)
+    (test (mk) 'set-clear!/simple-set s))
+
+  (let ([s (mk 1 2 3)])
+    (set-union! s (mk 2 3 4))
+    (test (mk 4 3 2 1 2 3) 'set-union!/simple-set s))
+
+  (let ([s (mk 1 2 3)])
+    (set-intersect! s (mk 2 3 4))
+    (test (mk 2 3) 'set-intersect!/simple-set s))
+
+  (let ([s (mk 1 2 3)])
+    (set-subtract! s (mk 2 3 4))
+    (test (mk 1) 'set-subtract!/simple-set s))
+
+  (let ([s (mk 1 2 3)])
+    (set-symmetric-difference! s (mk 2 3 4))
+    (test (mk 4 1) 'set-symmetric-difference!/simple-set s)))
+
+(let ()
+
   (define (str=? x y rec) (string=? x y))
   (define (str-hc1 x rec) (string-length x))
   (define (str-hc2 x rec) (rec (string-ref x 0)))
